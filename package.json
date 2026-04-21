@@ -1,19 +1,18 @@
 {
-  "name": "rdbms-erd",
-  "private": true,
-  "license": "MIT",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
-  "scripts": {
-    "dev": "npm run dev -w apps/playground",
-    "build": "npm run build -w apps/playground",
-    "lint": "npm run lint -w apps/playground",
-    "test": "vitest run"
-  },
-  "devDependencies": {
-    "typescript": "6.0.3",
-    "vitest": "^3.2.4"
-  }
+    "name": "rdbms-erd",
+    "license": "MIT",
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "scripts": {
+        "dev": "npm run dev -w apps/playground",
+        "build": "npm run build -w apps/playground",
+        "lint": "npm run lint -w apps/playground",
+        "test": "vitest run"
+    },
+    "devDependencies": {
+        "typescript": "6.0.3",
+        "vitest": "^3.2.4"
+    }
 }
