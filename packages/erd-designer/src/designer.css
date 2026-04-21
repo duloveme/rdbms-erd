@@ -1,0 +1,545 @@
+/* @rdbms-erd/designer — production-oriented surface tokens */
+.erd-root {
+  --erd-surface: #ffffff;
+  --erd-surface-muted: #f1f5f9;
+  --erd-surface-hover: #f8fafc;
+  --erd-border: #e2e8f0;
+  --erd-border-strong: #cbd5e1;
+  --erd-row-border: #f1f5f9;
+  --erd-text: #0f172a;
+  --erd-text-muted: #64748b;
+  --erd-primary: #2563eb;
+  --erd-primary-hover: #1d4ed8;
+  --erd-danger: #dc2626;
+  --erd-radius: 10px;
+  --erd-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --erd-shadow-lg: 0 10px 40px rgba(15, 23, 42, 0.12);
+  --erd-handle: #94a3b8;
+  --erd-handle-active: #2563eb;
+  color: var(--erd-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+}
+
+.erd-root--dark {
+  --erd-surface: #0f172a;
+  --erd-surface-muted: #111827;
+  --erd-surface-hover: #1f2937;
+  --erd-border: #334155;
+  --erd-border-strong: #475569;
+  --erd-row-border: #1e293b;
+  --erd-text: #e2e8f0;
+  --erd-text-muted: #94a3b8;
+  --erd-primary: #60a5fa;
+  --erd-primary-hover: #3b82f6;
+  --erd-handle: #64748b;
+  --erd-handle-active: #60a5fa;
+  --erd-shadow: 0 1px 3px rgba(2, 6, 23, 0.45);
+  --erd-shadow-lg: 0 10px 40px rgba(2, 6, 23, 0.65);
+}
+
+/* React Flow canvas/chrome dark mode */
+.erd-root--dark .react-flow,
+.erd-root--dark .react-flow__pane {
+  background: #020617;
+}
+
+.erd-root--dark .react-flow__background path {
+  stroke: #1e293b;
+}
+
+.erd-root--dark .react-flow__controls {
+  border: 1px solid #334155;
+  box-shadow: 0 1px 3px rgba(2, 6, 23, 0.5);
+}
+
+.erd-root--dark .react-flow__controls-button {
+  background: #0f172a;
+  border-bottom-color: #334155;
+  color: #cbd5e1;
+}
+
+.erd-root--dark .react-flow__controls-button:hover {
+  background: #1e293b;
+}
+
+.erd-root--dark .react-flow__minimap {
+  background: #0f172a;
+  border: 1px solid #334155;
+}
+
+.erd-root--dark .react-flow__minimap-mask {
+  fill: rgba(148, 163, 184, 0.12);
+}
+
+.erd-root--dark .erd-right-panel input,
+.erd-root--dark .erd-right-panel textarea,
+.erd-root--dark .erd-right-panel select {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-color: #334155 !important;
+}
+
+.erd-main {
+  display: flex;
+  flex-direction: row;
+  min-height: 0;
+  min-width: 0;
+}
+
+.erd-canvas-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+
+.erd-canvas-inner {
+  position: absolute;
+  inset: 0;
+}
+
+.erd-canvas-empty-hint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--erd-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.erd-right-panel {
+  width: 360px;
+  flex-shrink: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 40px 1fr;
+  border-left: 1px solid var(--erd-border);
+  background: var(--erd-surface);
+  overflow: hidden;
+}
+
+.erd-right-panel-header {
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--erd-border);
+  background: var(--erd-surface-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.erd-right-panel-body {
+  padding: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.erd-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: linear-gradient(180deg, var(--erd-surface) 0%, var(--erd-surface-muted) 100%);
+  border-bottom: 1px solid var(--erd-border);
+  box-shadow: var(--erd-shadow);
+}
+
+.erd-toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.erd-toolbar-sep {
+  width: 1px;
+  height: 22px;
+  background: var(--erd-border);
+  margin: 0 4px;
+}
+
+.erd-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--erd-border);
+  border-radius: 8px;
+  background: var(--erd-surface);
+  color: var(--erd-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.erd-toolbar-btn:hover:not(:disabled) {
+  background: var(--erd-surface-hover);
+  border-color: var(--erd-border-strong);
+}
+
+.erd-toolbar-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.erd-toolbar-btn--primary {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: var(--erd-primary);
+}
+
+.erd-toolbar-btn--primary:hover:not(:disabled) {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+.erd-toolbar-btn--active {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: var(--erd-primary);
+}
+
+/* Logical / physical: fixed width (~"Physical" + icon); keeps neighbors from shifting. */
+.erd-toolbar-btn--logical-physical {
+  box-sizing: border-box;
+  width: 104px;
+  min-width: 104px;
+  max-width: 104px;
+  justify-content: flex-start;
+}
+
+.erd-toolbar-btn--logical-physical > span:last-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erd-node-card {
+  border-radius: var(--erd-radius);
+  width: 252px;
+  background: var(--erd-surface);
+  border: 1px solid var(--erd-border);
+  box-shadow: var(--erd-shadow);
+  overflow: hidden;
+}
+
+.erd-node-card--selected {
+  border-color: var(--erd-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.erd-node-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--erd-border);
+  font-weight: 600;
+  font-size: 14px;
+  min-height: 38px;
+}
+
+.erd-node-header-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erd-node-header-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--erd-text-muted);
+  cursor: pointer;
+}
+
+.erd-node-header-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--erd-primary);
+}
+
+.erd-node-body {
+  padding: 2px 4px 4px;
+  font-size: 12px;
+}
+
+.erd-node-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--erd-row-border);
+}
+
+.erd-node-row--tinted {
+  padding: 8px 10px;
+  margin: 1px 0;
+  border-radius: 6px;
+  border-bottom-color: transparent;
+}
+
+.erd-node-row:last-child {
+  border-bottom: none;
+}
+
+.erd-node-row-name {
+  font-weight: 500;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erd-node-row-meta {
+  font-size: 12px;
+  color: var(--erd-text-muted);
+  flex-shrink: 0;
+}
+
+.erd-node-row--tinted .erd-node-row-name,
+.erd-node-row--tinted .erd-node-row-meta {
+  color: inherit;
+}
+
+.erd-node-row--tinted .erd-node-row-meta {
+  opacity: 0.82;
+}
+
+/* 선택 완료 후에 남는 그룹 박스만 숨긴다(드래그 사각형은 유지). */
+.react-flow__nodesselection-rect {
+  display: none !important;
+  opacity: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+.erd-handle-dot {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  border: 2px solid var(--erd-surface) !important;
+  background: var(--erd-handle) !important;
+}
+
+.erd-handle-dot:hover {
+  background: var(--erd-handle-active) !important;
+}
+
+/* dialog */
+.erd-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.erd-dialog {
+  width: min(920px, 100%);
+  max-height: min(88vh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--erd-surface);
+  border-radius: 12px;
+  box-shadow: var(--erd-shadow-lg);
+  border: 1px solid var(--erd-border);
+}
+
+.erd-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--erd-border);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.erd-dialog-body {
+  padding: 16px 18px;
+  overflow: auto;
+  flex: 1;
+}
+
+.erd-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--erd-border);
+  background: var(--erd-surface-muted);
+}
+
+.erd-field {
+  margin-bottom: 14px;
+}
+
+.erd-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--erd-text-muted);
+  margin-bottom: 4px;
+}
+
+.erd-input,
+.erd-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--erd-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.erd-input:focus,
+.erd-select:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.erd-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--erd-border);
+  background: var(--erd-surface);
+  cursor: pointer;
+}
+
+.erd-btn--primary {
+  background: var(--erd-primary);
+  border-color: var(--erd-primary);
+  color: #fff;
+}
+
+.erd-btn--primary:hover {
+  background: var(--erd-primary-hover);
+  border-color: var(--erd-primary-hover);
+}
+
+.erd-btn--ghost:hover {
+  background: var(--erd-surface-hover);
+}
+
+.erd-column-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 100px 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+/* 테이블 편집: 컬럼 한 줄 그리드용 아이콘 버튼 */
+.erd-dialog-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--erd-border);
+  border-radius: 8px;
+  background: var(--erd-surface);
+  color: var(--erd-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.erd-dialog-icon-btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: var(--erd-border-strong);
+  color: var(--erd-primary);
+}
+
+.erd-dialog-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.erd-dialog-icon-btn--on {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: var(--erd-primary);
+}
+
+.erd-dialog-col-grid {
+  display: grid;
+  align-items: center;
+  gap: 6px;
+}
+
+.erd-dialog-col-grid--header {
+  align-items: end;
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+.erd-dialog-col-head-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--erd-text-muted);
+  line-height: 1.2;
+  padding-bottom: 2px;
+  min-width: 0;
+}
+
+.erd-dialog-col-head-tight {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--erd-text-muted);
+  line-height: 1.2;
+  padding-bottom: 2px;
+  text-align: center;
+  justify-self: center;
+  width: 100%;
+  max-width: 30px;
+}
+
+.erd-dialog-col-head-spacer {
+  min-height: 1em;
+}
+
+.erd-dialog-col-grid--logical {
+  grid-template-columns: minmax(0, 1fr) minmax(124px, 9.5rem) 30px 30px 84px 32px 28px 30px;
+}
+
+.erd-dialog-col-grid--physical {
+  grid-template-columns: minmax(0, 1fr) minmax(118px, 9rem) minmax(64px, 0.55fr) 30px 30px 84px 32px 28px 30px;
+}
+
+@media (max-width: 540px) {
+  .erd-column-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
