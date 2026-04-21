@@ -2,6 +2,8 @@
 
 Monorepo for **relational database ERD (entity–relationship diagram)** tooling backed by a JSON document model: shared schema (`@rdbms-erd/core`), a React canvas designer (`@rdbms-erd/designer`), and a reference Next.js app (`apps/playground`).
 
+**Licensing:** open source under the [MIT License](LICENSE). **Commercial / enterprise use** is expected to be covered by a separate [Commercial License Agreement](LICENSING.md#2-commercial--enterprise--paid-commercial-license)—see [LICENSING.md](LICENSING.md) for details and how to contact the maintainers.
+
 ## Packages
 
 | Package | Role |
@@ -232,4 +234,5 @@ npm run build    # production build of playground
 
 ## License
 
-See repository metadata or a `LICENSE` file if present.
+- **Open source:** [MIT License](LICENSE) (SPDX: `MIT` in published packages).  
+- **Enterprise / commercial:** see [LICENSING.md](LICENSING.md) for the paid **Commercial License** policy and contact.
