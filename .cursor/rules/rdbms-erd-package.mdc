@@ -1,0 +1,13 @@
+---
+description: erd-designer(및 core) 라이브러리 패키지 코딩 규칙
+globs: packages/**/*.ts
+alwaysApply: false
+---
+
+# 라이브러리 패키지 (`packages/**`)
+
+- **peerDependencies**: `react`, `react-dom`은 peer로만 선언한다. 번들에 React를 넣지 않는다.
+- **공개 API**: `package.json`의 `exports` 필드로 진입점을 명시하고, 내부 경로 deep import는 문서화된 예외만 허용한다.
+- **스타일**: 기본은 headless 또는 CSS variables; 소비 앱이 테마를 덮어쓸 수 있게 한다.
+- **그래프 UX**: 테이블 노드는 **우측 상단**에서 첫 relationship 엣지가 나가고, 추가 관계는 **아래쪽**에 새 핸들/엣지로 표현한다. 엣지를 빈 영역에 드롭하면 **새 테이블 생성** 흐름을 트리거할 수 있어야 한다(콜백으로 위임 가능).
+- **테스트**: 방언별 DDL/인덱스 문자열 생성은 스냅샷 또는 고정 픽스처로 검증한다.

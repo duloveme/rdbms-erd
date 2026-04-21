@@ -1,0 +1,12 @@
+---
+description: Next.js 플레이그라운드 앱 규칙
+globs: apps/playground/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# 플레이그라운드 (`apps/playground`)
+
+- **역할**: 로컬 패키지 `erd-designer`를 링크해 데모·회귀 테스트·문서 예제를 제공한다. 비즈니스 로직은 가능한 패키지로 올린다.
+- **App Router**: 기본은 Server/Client 경계를 명확히 하고, 캔버스는 Client Component로 둔다.
+- **다이얼로그**: “새 테이블 생성” 등 UX는 플레이그라운드에서 구현하고, 라이브러리 콜백에 연결한다.
+- **환경**: DB 연결 역공학은 후속이면 목(mock) 데이터로 단계적 도입한다.

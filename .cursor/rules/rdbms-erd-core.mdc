@@ -1,0 +1,13 @@
+---
+description: rdbms-erd 모노레포 목표, 패키지 경계, 공통 원칙
+alwaysApply: true
+---
+
+# rdbms-erd — 핵심 원칙
+
+- **목표**: RDBMS용 React ERD 디자이너 **라이브러리** + Next.js **플레이그라운드**(`apps/playground`). 구현 세부는 `docs/DEVELOPMENT_PLAN.md`를 따른다.
+- **경계**: DB 방언·DDL·검증 로직은 가능하면 `packages/*` 순수 TS 모듈로 두고, React/DOM 의존은 UI 패키지에만 둔다.
+- **DB 우선**: MS SQL Server, Oracle, MySQL, PostgreSQL. 방언별 차이는 중앙 매핑(타입·식별자·따옴표)으로 처리하고 하드코딩 분기 남발을 피한다.
+- **상태**: **Zustand v5** + **immer 미들웨어** + **`zundo`**(temporal)로 Undo/Redo를 맞춘다. Redux Toolkit은 사용하지 않는다.
+- **확장**: 다이얼로그·토스트·라우팅은 플레이그라운드 책임이 될 수 있으므로, 라이브러리는 **콜백/props 슬롯**으로 UI를 주입 가능하게 설계한다.
+- **직렬화·Ref**: 현재 디자인은 버전이 있는 **JSON 문서**로 보내기/불러오기 가능해야 하며, 부모는 React **`ref`**로 명령형 API(JSON·선택적 undo 등)에 접근할 수 있어야 한다(`docs/DEVELOPMENT_PLAN.md` §6.8).
