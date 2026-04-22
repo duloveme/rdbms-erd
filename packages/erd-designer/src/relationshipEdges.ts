@@ -4,23 +4,11 @@ import type { Edge } from "@xyflow/react";
 
 export type RelationshipEdgeData = { relationshipIds: string[] };
 
-export function computeRelationshipHandleMaps(relationships: RelationshipModel[]): {
-  sourceHandleByRelId: Record<string, number>;
-  targetHandleByRelId: Record<string, number>;
-} {
+/** Single source handle on the right of each table node; all outgoing FK edges attach here. */
+export const TABLE_RELATIONSHIP_SOURCE_HANDLE_ID = "source";
+
+function computeTargetHandleByRelId(relationships: RelationshipModel[]): Record<string, number> {
   const sorted = [...relationships].sort((a, b) => a.id.localeCompare(b.id));
-  const sourceHandleByRelId: Record<string, number> = {};
-  const bySource = new Map<string, RelationshipModel[]>();
-  for (const rel of sorted) {
-    const arr = bySource.get(rel.sourceTableId) ?? [];
-    arr.push(rel);
-    bySource.set(rel.sourceTableId, arr);
-  }
-  for (const [, list] of bySource) {
-    list.forEach((rel, idx) => {
-      sourceHandleByRelId[rel.id] = idx;
-    });
-  }
   const targetHandleByRelId: Record<string, number> = {};
   const byTarget = new Map<string, RelationshipModel[]>();
   for (const rel of sorted) {
@@ -33,21 +21,21 @@ export function computeRelationshipHandleMaps(relationships: RelationshipModel[]
       targetHandleByRelId[rel.id] = idx;
     });
   }
-  return { sourceHandleByRelId, targetHandleByRelId };
+  return targetHandleByRelId;
 }
 
 export function buildRelationshipFlowEdges(
   model: DesignModel,
   globalLinesVisible: boolean
 ): Edge<RelationshipEdgeData>[] {
-  const { sourceHandleByRelId, targetHandleByRelId } = computeRelationshipHandleMaps(model.relationships);
+  const targetHandleByRelId = computeTargetHandleByRelId(model.relationships);
   return model.relationships
     .filter((rel) => isRelationshipLineRenderable(rel, model, globalLinesVisible))
     .map((rel) => ({
       id: rel.id,
       source: rel.sourceTableId,
       target: rel.targetTableId,
-      sourceHandle: `source-${sourceHandleByRelId[rel.id]}`,
+      sourceHandle: TABLE_RELATIONSHIP_SOURCE_HANDLE_ID,
       targetHandle: `target-${targetHandleByRelId[rel.id]}`,
       data: { relationshipIds: [rel.id] }
     }));
