@@ -60,6 +60,10 @@ export interface DesignerState {
   setRelationshipCardinality: (relationshipId: string, cardinality: "1:1" | "1:N") => void;
   /** 관계선 꺾임 비율(0~1) 변경 */
   setRelationshipLinePivotRatio: (relationshipId: string, ratio: number) => void;
+  /** 관계선 출발점 세로 비율(0~1) 변경 */
+  setRelationshipSourceLineRatio: (relationshipId: string, ratio: number) => void;
+  /** 관계선 출발점 절대 Y(px) 변경 */
+  setRelationshipSourceLineY: (relationshipId: string, y: number) => void;
   /** 선택된 테이블/관계선을 한 번에 삭제(Undo 1스텝 보장) */
   deleteSelection: (tableIds: string[], relationshipIds: string[]) => void;
 }
@@ -242,6 +246,20 @@ export function createDesignerStore(
             if (!rel) return;
             const normalized = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0.5;
             rel.linePivotRatio = normalized;
+          }),
+        setRelationshipSourceLineRatio: (relationshipId, ratio) =>
+          set((state) => {
+            const rel = state.doc.model.relationships.find((r) => r.id === relationshipId);
+            if (!rel) return;
+            const normalized = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0;
+            rel.sourceLineRatio = normalized;
+          }),
+        setRelationshipSourceLineY: (relationshipId, y) =>
+          set((state) => {
+            const rel = state.doc.model.relationships.find((r) => r.id === relationshipId);
+            if (!rel) return;
+            const normalized = Number.isFinite(y) ? Math.max(0, y) : 0;
+            rel.sourceLineY = normalized;
           }),
         deleteSelection: (tableIds, relationshipIds) =>
           set((state) => {

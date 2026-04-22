@@ -64,6 +64,10 @@ export interface RelationshipModel {
   originPkColumnId?: string;
   /** 타깃 cardinality. 기본 1:N */
   cardinality?: "1:1" | "1:N";
+  /** 출발(소스) 엣지의 테이블 내부 절대 Y 좌표(px). */
+  sourceLineY?: number;
+  /** @deprecated legacy ratio(0~1). sourceLineY가 없을 때만 fallback으로 사용 */
+  sourceLineRatio?: number;
   /** 관계선의 중간 꺾임 위치 비율(0~1). 두 테이블 앵커 사이의 비율로 저장한다. */
   linePivotRatio?: number;
   /** true이면 캔버스에서 해당 관계선을 기본적으로 숨긴다. 툴의「숨긴 관계선 보기」로만 표시 가능. */

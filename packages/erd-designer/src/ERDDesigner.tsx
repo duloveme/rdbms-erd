@@ -123,6 +123,7 @@ type InternalCreateTableContext = {
 
 interface TableNodeData extends Record<string, unknown> {
     table: TableModel;
+    tableWidth: number;
     compact: boolean;
     displayMode: CanvasDisplayMode;
     physicalTitle?: string;
@@ -155,6 +156,13 @@ function clamp01(value: number): number {
 
 function lerp(a: number, b: number, ratio: number): number {
     return a + (b - a) * ratio;
+}
+
+function defaultSourceLineYForTable(table: TableModel | undefined): number {
+    if (!table) return targetRowCenterTopPx(0, 1);
+    const pkIndex = table.columns.findIndex((c) => c.isPrimaryKey);
+    const rowIndex = pkIndex >= 0 ? pkIndex : 0;
+    return targetRowCenterTopPx(rowIndex, Math.max(1, table.columns.length));
 }
 
 function buildRelationshipRouteInfo(params: {
@@ -207,11 +215,24 @@ function RelationshipEdge({
     data,
     selected,
 }: EdgeProps) {
+    const SOURCE_HANDLE_OUTSET_PX = 6;
     const edgeData = data as RelationshipEdgeData | undefined;
     const relationshipId = edgeData?.relationshipIds?.[0];
+    const sourceAnchorMinY = edgeData?.sourceAnchorMinY ?? sourceY;
+    const sourceAnchorMaxY = edgeData?.sourceAnchorMaxY ?? sourceY;
+    const sourceTableTopY = sourceY - HANDLE_TOP;
+    const sourceLineY = Number.isFinite(edgeData?.sourceLineY)
+        ? Number(edgeData?.sourceLineY)
+        : HANDLE_TOP;
+    const localSourceY = Math.max(
+        sourceAnchorMinY,
+        Math.min(sourceAnchorMaxY, sourceLineY),
+    );
+    const effectiveSourceY = sourceTableTopY + localSourceY;
+    const sourceBorderX = sourceX - SOURCE_HANDLE_OUTSET_PX;
     const routeInfo = buildRelationshipRouteInfo({
-        sourceX,
-        sourceY,
+        sourceX: sourceBorderX,
+        sourceY: effectiveSourceY,
         targetX,
         targetY,
         targetPosition,
@@ -221,6 +242,7 @@ function RelationshipEdge({
     const cardinality =
         edgeData?.cardinality ?? "1:N";
     const onLinePivotRatioChange = edgeData?.onLinePivotRatioChange;
+    const onSourceLineYChange = edgeData?.onSourceLineYChange;
     // 끝단 표식은 "타깃으로 진입하는 방향" 기준으로 계산한다.
     const [ux, uy] =
         targetPosition === Position.Left
@@ -232,8 +254,8 @@ function RelationshipEdge({
                 : targetPosition === Position.Bottom
                   ? [0, -1]
                   : (() => {
-                        const dx = targetX - sourceX;
-                        const dy = targetY - sourceY;
+                        const dx = targetX - sourceBorderX;
+                        const dy = targetY - effectiveSourceY;
                         const len = Math.hypot(dx, dy) || 1;
                         return [dx / len, dy / len] as const;
                     })();
@@ -294,15 +316,15 @@ function RelationshipEdge({
                 const point = toSvgPoint(clientX, clientY);
                 if (!point) return;
                 if (routeInfo.primaryAxis === "x") {
-                    const width = targetX - sourceX;
+                    const width = targetX - sourceBorderX;
                     if (Math.abs(width) < 1e-6) return;
-                    const next = clamp01((point.x - sourceX) / width);
+                    const next = clamp01((point.x - sourceBorderX) / width);
                     onLinePivotRatioChange(relationshipId, next);
                     return;
                 }
-                const height = targetY - sourceY;
+                const height = targetY - effectiveSourceY;
                 if (Math.abs(height) < 1e-6) return;
-                const next = clamp01((point.y - sourceY) / height);
+                const next = clamp01((point.y - effectiveSourceY) / height);
                 onLinePivotRatioChange(relationshipId, next);
             };
 
@@ -323,10 +345,62 @@ function RelationshipEdge({
             onLinePivotRatioChange,
             relationshipId,
             routeInfo.primaryAxis,
-            sourceX,
-            sourceY,
+            sourceBorderX,
+            effectiveSourceY,
             targetX,
             targetY,
+        ],
+    );
+
+    const onSourcePointerDown = useCallback(
+        (e: React.PointerEvent<SVGCircleElement>) => {
+            if (!relationshipId || !onSourceLineYChange) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const svg = e.currentTarget.ownerSVGElement;
+            if (!svg) return;
+
+            const toSvgPoint = (
+                clientX: number,
+                clientY: number,
+            ): { x: number; y: number } | null => {
+                const matrix = svg.getScreenCTM();
+                if (!matrix) return null;
+                const point = svg.createSVGPoint();
+                point.x = clientX;
+                point.y = clientY;
+                const transformed = point.matrixTransform(matrix.inverse());
+                return { x: transformed.x, y: transformed.y };
+            };
+
+            const updateRatio = (clientX: number, clientY: number) => {
+                const point = toSvgPoint(clientX, clientY);
+                if (!point) return;
+                const next = Math.max(
+                    sourceAnchorMinY,
+                    Math.min(sourceAnchorMaxY, point.y - sourceTableTopY),
+                );
+                onSourceLineYChange(relationshipId, next);
+            };
+
+            const handleMove = (event: PointerEvent) => {
+                event.preventDefault();
+                updateRatio(event.clientX, event.clientY);
+            };
+            const handleUp = () => {
+                window.removeEventListener("pointermove", handleMove);
+                window.removeEventListener("pointerup", handleUp);
+            };
+            window.addEventListener("pointermove", handleMove);
+            window.addEventListener("pointerup", handleUp);
+            updateRatio(e.clientX, e.clientY);
+        },
+        [
+            onSourceLineYChange,
+            relationshipId,
+            sourceAnchorMaxY,
+            sourceAnchorMinY,
+            sourceTableTopY,
         ],
     );
 
@@ -353,6 +427,16 @@ function RelationshipEdge({
                                 : "ns-resize",
                     }}
                     onPointerDown={onPivotPointerDown}
+                />
+            ) : null}
+            {selected && relationshipId && onSourceLineYChange ? (
+                <circle
+                    className="erd-edge-source-handle"
+                    cx={sourceBorderX}
+                    cy={effectiveSourceY}
+                    r={6}
+                    style={{ cursor: "ns-resize" }}
+                    onPointerDown={onSourcePointerDown}
                 />
             ) : null}
         </g>
@@ -429,6 +513,7 @@ const TableNode = memo(function TableNode({
     }, []);
     const {
         table,
+        tableWidth,
         compact,
         displayMode,
         onEditTable,
@@ -460,6 +545,7 @@ const TableNode = memo(function TableNode({
             className={cardClass}
             data-table-id={table.id}
             aria-label={`table-${table.physicalName}`}
+            style={{ width: tableWidth }}
             onDoubleClick={(e) => {
                 e.stopPropagation();
                 onEditTable(table.id);
@@ -651,6 +737,8 @@ export interface ERDDesignerProps {
     toolbarExtra?: React.ReactNode;
     toolbarSlots?: ToolbarSlots;
     largeDiagramThreshold?: number;
+    /** 캔버스 테이블 카드 너비(px). 기본 378(기존 252의 1.5배). */
+    tableWidth?: number;
     /**
      * 캔버스에서 `canvasLineHidden`인 관계선까지 임시로 그릴지(표시만, 모델은 변경하지 않음).
      * 지정 시 제어 컴포넌트로 동작하고, 생략 시 `defaultRevealHiddenRelationshipLines`를 사용한다.
@@ -704,6 +792,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             toolbarSlots,
             toolbarExtra,
             largeDiagramThreshold = 120,
+            tableWidth = 400,
             revealHiddenRelationshipLines: revealHiddenRelationshipLinesProp,
             defaultRevealHiddenRelationshipLines = false,
             onRevealHiddenRelationshipLinesChange,
@@ -753,6 +842,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
         const setRelationshipLinePivotRatio = useDesignerStore(
             (s) => s.setRelationshipLinePivotRatio,
+        );
+        const setRelationshipSourceLineY = useDesignerStore(
+            (s) => s.setRelationshipSourceLineY,
         );
 
         const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -960,6 +1052,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     },
                     data: {
                         table,
+                        tableWidth,
                         compact: largeDiagram,
                         displayMode,
                         physicalTitle: formatPhysicalTableName(table),
@@ -976,6 +1069,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 largeDiagram,
                 onEditTable,
                 relationshipEndpointTableIds,
+                tableWidth,
             ],
         );
 
@@ -987,6 +1081,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 {
                     onLinePivotRatioChange: (relationshipId, ratio) =>
                         setRelationshipLinePivotRatio(relationshipId, ratio),
+                    onSourceLineYChange: (relationshipId, y) =>
+                        setRelationshipSourceLineY(relationshipId, y),
                 },
             );
         }, [
@@ -994,6 +1090,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             hasDesign,
             revealHiddenRelationshipLines,
             setRelationshipLinePivotRatio,
+            setRelationshipSourceLineY,
         ]);
 
         const diagramSignature = useMemo(
@@ -1041,7 +1138,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     };
                 });
             });
-        }, [diagramSignature]);
+        }, [diagramSignature, tableWidth]);
 
         useEffect(() => {
             const elevated = new Set(elevatedEdgeIds);
@@ -1343,6 +1440,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         autoCreatedTargetColumn: rel.autoCreatedTargetColumn,
                         originPkColumnId: rel.sourceColumnId,
                         cardinality: relationshipCardinalityMode,
+                        sourceLineY: defaultSourceLineYForTable(sourceTable),
                         linePivotRatio: 0.5,
                     });
                 }
@@ -1474,11 +1572,11 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 const node = inst.getNode(tableId);
                 const pos = node?.position ?? doc.layout.nodePositions[tableId];
                 if (!pos) return;
-                const centerX = pos.x + 126;
+                const centerX = pos.x + tableWidth / 2;
                 const centerY = pos.y + 22;
                 void inst.setCenter(centerX, centerY, { duration: 260 });
             },
-            [doc.layout.nodePositions],
+            [doc.layout.nodePositions, tableWidth],
         );
 
         const createNewEr = useCallback(() => {
@@ -1735,6 +1833,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     targetColumnId: nextTargetColumnId,
                     originPkColumnId: nextOriginPkColumnId,
                     cardinality: rel.cardinality ?? "1:N",
+                    sourceLineY:
+                        rel.sourceLineY ??
+                        defaultSourceLineYForTable(
+                            bundle.tables.find(
+                                (t) => t.id === rel.sourceTableId,
+                            ),
+                        ),
                     linePivotRatio: rel.linePivotRatio ?? 0.5,
                 });
             }

@@ -805,25 +805,25 @@ function createTestDesign(): DesignDocument {
     );
 
     doc.layout.nodePositions["table-warehouses"] = { x: 80, y: 70 };
-    doc.layout.nodePositions["table-zones"] = { x: 380, y: 70 };
-    doc.layout.nodePositions["table-locations"] = { x: 700, y: 70 };
-    doc.layout.nodePositions["table-suppliers"] = { x: 80, y: 320 };
-    doc.layout.nodePositions["table-products"] = { x: 380, y: 320 };
-    doc.layout.nodePositions["table-product-barcodes"] = { x: 700, y: 320 };
-    doc.layout.nodePositions["table-inbound-receipts"] = { x: 80, y: 570 };
+    doc.layout.nodePositions["table-zones"] = { x: 540, y: 70 };
+    doc.layout.nodePositions["table-locations"] = { x: 1000, y: 70 };
+    doc.layout.nodePositions["table-suppliers"] = { x: 80, y: 380 };
+    doc.layout.nodePositions["table-products"] = { x: 540, y: 380 };
+    doc.layout.nodePositions["table-product-barcodes"] = { x: 1000, y: 380 };
+    doc.layout.nodePositions["table-inbound-receipts"] = { x: 80, y: 690 };
     doc.layout.nodePositions["table-inbound-receipt-items"] = {
-        x: 380,
-        y: 570,
+        x: 540,
+        y: 690,
     };
-    doc.layout.nodePositions["table-outbound-orders"] = { x: 700, y: 570 };
+    doc.layout.nodePositions["table-outbound-orders"] = { x: 1000, y: 690 };
     doc.layout.nodePositions["table-outbound-order-items"] = {
-        x: 1020,
-        y: 570,
+        x: 1460,
+        y: 690,
     };
-    doc.layout.nodePositions["table-inventory-balances"] = { x: 1020, y: 320 };
-    doc.layout.nodePositions["table-stock-movements"] = { x: 1330, y: 320 };
-    doc.layout.nodePositions["table-cycle-counts"] = { x: 1330, y: 70 };
-    doc.layout.nodePositions["table-cycle-count-items"] = { x: 1630, y: 70 };
+    doc.layout.nodePositions["table-inventory-balances"] = { x: 1460, y: 380 };
+    doc.layout.nodePositions["table-stock-movements"] = { x: 1920, y: 380 };
+    doc.layout.nodePositions["table-cycle-counts"] = { x: 1460, y: 70 };
+    doc.layout.nodePositions["table-cycle-count-items"] = { x: 1920, y: 70 };
 
     doc.settings = {
         ...(doc.settings ?? {}),
@@ -838,12 +838,14 @@ function createTestDesign(): DesignDocument {
 export default function Page() {
     const designerRef = useRef<ERDDesignerHandle>(null);
     const [design, setDesign] = useState<DesignDocument | undefined>(undefined);
-    const [rightPanelEnabled, setRightPanelEnabled] = useState(true);
     const [locale, setLocale] = useState("ko");
+    const [rightPanelEnabled, setRightPanelEnabled] = useState(true);
     const [revealHiddenRelationshipLines, setRevealHiddenRelationshipLines] =
         useState(false);
     const [elevateSelectedRelationships, setElevateSelectedRelationships] =
         useState(true);
+    const [tableWidth, setTableWidth] = useState(400);
+    const [largeDiagramThreshold, setLargeDiagramThreshold] = useState(120);
     const handleDesignChange = useCallback((doc: DesignDocument) => {
         setDesign(doc);
     }, []);
@@ -877,20 +879,6 @@ export default function Page() {
                         alignItems: "center",
                     }}
                 >
-                    <input
-                        type="checkbox"
-                        checked={rightPanelEnabled}
-                        onChange={(e) => setRightPanelEnabled(e.target.checked)}
-                    />
-                    showRightPanel
-                </label>
-                <label
-                    style={{
-                        display: "inline-flex",
-                        gap: 8,
-                        alignItems: "center",
-                    }}
-                >
                     locale
                     <select
                         value={locale}
@@ -900,6 +888,20 @@ export default function Page() {
                         <option value="ko">ko</option>
                         <option value="en">en</option>
                     </select>
+                </label>
+                <label
+                    style={{
+                        display: "inline-flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}
+                >
+                    <input
+                        type="checkbox"
+                        checked={rightPanelEnabled}
+                        onChange={(e) => setRightPanelEnabled(e.target.checked)}
+                    />
+                    showRightPanel
                 </label>
                 <label
                     style={{
@@ -932,6 +934,54 @@ export default function Page() {
                         }
                     />
                     elevateSelectedRelationships
+                </label>
+                <label
+                    style={{
+                        display: "inline-flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}
+                >
+                    tableWidth
+                    <input
+                        type="number"
+                        min={240}
+                        step={6}
+                        value={tableWidth}
+                        onChange={(e) =>
+                            setTableWidth(
+                                Number.isFinite(e.target.valueAsNumber) &&
+                                    e.target.valueAsNumber > 0
+                                    ? e.target.valueAsNumber
+                                    : 400,
+                            )
+                        }
+                        style={{ width: 88, padding: "4px 8px" }}
+                    />
+                </label>
+                <label
+                    style={{
+                        display: "inline-flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}
+                >
+                    largeDiagramThreshold
+                    <input
+                        type="number"
+                        min={10}
+                        step={10}
+                        value={largeDiagramThreshold}
+                        onChange={(e) =>
+                            setLargeDiagramThreshold(
+                                Number.isFinite(e.target.valueAsNumber) &&
+                                    e.target.valueAsNumber > 0
+                                    ? e.target.valueAsNumber
+                                    : 120,
+                            )
+                        }
+                        style={{ width: 88, padding: "4px 8px" }}
+                    />
                 </label>
                 <button
                     type="button"
@@ -973,6 +1023,8 @@ export default function Page() {
                         onChange={handleDesignChange}
                         showRightPanel={rightPanelEnabled}
                         locale={locale}
+                        tableWidth={tableWidth}
+                        largeDiagramThreshold={largeDiagramThreshold}
                         revealHiddenRelationshipLines={
                             revealHiddenRelationshipLines
                         }

@@ -204,6 +204,49 @@ describe("createDesignerStore + zundo", () => {
     expect(useStore.getState().doc.model.relationships[0].linePivotRatio).toBe(0);
   });
 
+  it("setRelationshipSourceLineRatio stores clamped ratio", () => {
+    const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addRelationship({
+      id: "r-source",
+      sourceTableId: "s",
+      targetTableId: "t"
+    });
+    useStore.getState().setRelationshipSourceLineRatio("r-source", 2);
+    expect(useStore.getState().doc.model.relationships[0].sourceLineRatio).toBe(1);
+    useStore.getState().setRelationshipSourceLineRatio("r-source", -1);
+    expect(useStore.getState().doc.model.relationships[0].sourceLineRatio).toBe(0);
+  });
+
+  it("setRelationshipSourceLineY stores absolute y and supports undo/redo", () => {
+    const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addRelationship({
+      id: "r-source-y",
+      sourceTableId: "s",
+      targetTableId: "t"
+    });
+    useStore.getState().setRelationshipSourceLineY("r-source-y", 142.5);
+    expect(useStore.getState().doc.model.relationships[0].sourceLineY).toBe(142.5);
+    useStore.temporal.getState().undo();
+    expect(useStore.getState().doc.model.relationships[0].sourceLineY).toBeUndefined();
+    useStore.temporal.getState().redo();
+    expect(useStore.getState().doc.model.relationships[0].sourceLineY).toBe(142.5);
+  });
+
+  it("setRelationshipLinePivotRatio supports undo/redo", () => {
+    const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addRelationship({
+      id: "r-pivot-undo",
+      sourceTableId: "s",
+      targetTableId: "t"
+    });
+    useStore.getState().setRelationshipLinePivotRatio("r-pivot-undo", 0.8);
+    expect(useStore.getState().doc.model.relationships[0].linePivotRatio).toBe(0.8);
+    useStore.temporal.getState().undo();
+    expect(useStore.getState().doc.model.relationships[0].linePivotRatio).toBeUndefined();
+    useStore.temporal.getState().redo();
+    expect(useStore.getState().doc.model.relationships[0].linePivotRatio).toBe(0.8);
+  });
+
   it("deleteSelection removes table and connected relationships in one undo step", () => {
     const useStore = createDesignerStore({ initialDialect: "postgres" });
     useStore.getState().addTable({ id: "a", logicalName: "A", physicalName: "TA", columns: [] }, 0, 0);

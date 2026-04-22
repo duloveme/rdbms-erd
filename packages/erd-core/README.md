@@ -43,6 +43,16 @@ console.log(generateDdl(doc));
 - `DialectMetaJson`: host-overridable per-dialect metadata
 - `DdlGeneratorHook`: optional per-dialect SQL generation hook
 
+## Relationship Model Notes
+
+`RelationshipModel` supports canvas-specific rendering state used by the designer:
+
+- `cardinality?: "1:1" | "1:N"`
+- `canvasLineHidden?: boolean`
+- `linePivotRatio?: number` (middle vertical segment ratio)
+- `sourceLineY?: number` (source edge absolute Y inside table)
+- `sourceLineRatio?: number` (legacy fallback; kept for compatibility)
+
 ## Host-Extensible DB Metadata
 
 ### 1) Override/append dialect metadata with JSON

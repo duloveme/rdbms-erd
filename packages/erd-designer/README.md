@@ -47,18 +47,22 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
   - `onRequestNewEr?: (currentDialect: RdbmsDialect) => void`
   - `onRequestCreateTable?: (payload: CreateTableRequestPayload) => void`
 - View/control:
+  - `locale?: string`
+  - `translations?: Partial<Record<I18nKey, string>>`
+  - `t?: (key: I18nKey, vars?: I18nVars) => string`
   - `showRightPanel?: boolean`
-  - `relationshipLinesVisible?: boolean`
-  - `defaultRelationshipLinesVisible?: boolean`
-  - `onRelationshipLinesVisibleChange?: (visible: boolean) => void`
+  - `tableWidth?: number` (default `400`)
+  - `largeDiagramThreshold?: number` (default `120`)
+  - `revealHiddenRelationshipLines?: boolean`
+  - `defaultRevealHiddenRelationshipLines?: boolean`
+  - `onRevealHiddenRelationshipLinesChange?: (reveal: boolean) => void`
+  - `elevateSelectedRelationships?: boolean` (default `false`)
   - `themeMode?: "light" | "dark"`
   - `defaultThemeMode?: "light" | "dark"`
   - `onThemeModeChange?: (mode: "light" | "dark") => void`
 - Toolbar extension:
   - `toolbarSlots?: ToolbarSlots`
   - `toolbarExtra?: React.ReactNode`
-- i18n:
-  - `locale?`, `translations?`, `t?`
 
 ## DB Extension Props (JSON + optional hook)
 
@@ -118,6 +122,11 @@ const hostMetas = [
 
 - `designer.css` and React Flow style are imported by package entry.
 - DDL hooks are runtime-only values and are not serialized in design JSON.
+- Relationship edge customization state is serialized in document relationships:
+  - `cardinality?: "1:1" | "1:N"`
+  - `canvasLineHidden?: boolean`
+  - `linePivotRatio?: number`
+  - `sourceLineY?: number` (`sourceLineRatio` is kept for legacy fallback)
 
 ## License
 

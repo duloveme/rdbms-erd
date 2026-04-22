@@ -267,6 +267,13 @@
   pointer-events: all;
 }
 
+.erd-edge-source-handle {
+  fill: #ffffff;
+  stroke: var(--erd-primary);
+  stroke-width: 1.5;
+  pointer-events: all;
+}
+
 .erd-edge-context-menu {
   min-width: 168px;
   padding: 4px 0;

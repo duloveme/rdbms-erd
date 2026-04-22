@@ -5,8 +5,12 @@ import type { Edge } from "@xyflow/react";
 export type RelationshipEdgeData = {
     relationshipIds: string[];
     cardinality: "1:1" | "1:N";
+    sourceLineY: number;
+    sourceAnchorMinY: number;
+    sourceAnchorMaxY: number;
     linePivotRatio: number;
     onLinePivotRatioChange?: (relationshipId: string, ratio: number) => void;
+    onSourceLineYChange?: (relationshipId: string, y: number) => void;
 };
 
 /** Single source handle on the right of each table node; all outgoing FK edges attach here. */
@@ -25,6 +29,35 @@ function fkColumnIndex(
     const i = targetTable.columns.findIndex((c) => c.id === columnId);
     if (i < 0) return -1;
     return targetTable.columns[i]?.isForeignKey ? i : -1;
+}
+
+const NODE_HEADER_PX = 39;
+const NODE_BODY_PAD_TOP = 2;
+const NODE_BODY_PAD_BOTTOM = 4;
+const NODE_ROW_PX = 36;
+
+function rowCenterTopPx(rowIndex: number, columnCount: number): number {
+    if (columnCount <= 0) return NODE_HEADER_PX + 18;
+    const idx = Math.max(0, Math.min(rowIndex, columnCount - 1));
+    return NODE_HEADER_PX + NODE_BODY_PAD_TOP + idx * NODE_ROW_PX + NODE_ROW_PX / 2;
+}
+
+function defaultSourceLineY(
+    sourceTable: DesignModel["tables"][number] | undefined,
+): number {
+    if (!sourceTable) return rowCenterTopPx(0, 1);
+    const pkIndex = sourceTable.columns.findIndex((c) => c.isPrimaryKey);
+    const rowIndex = pkIndex >= 0 ? pkIndex : 0;
+    return rowCenterTopPx(rowIndex, Math.max(1, sourceTable.columns.length));
+}
+
+function tableTopPx(): number {
+    return 0;
+}
+
+function tableBottomPx(columnCount: number): number {
+    const count = Math.max(1, columnCount);
+    return NODE_HEADER_PX + NODE_BODY_PAD_TOP + count * NODE_ROW_PX + NODE_BODY_PAD_BOTTOM;
 }
 
 /**
@@ -53,6 +86,10 @@ export function buildRelationshipFlowEdges(
             relationshipId: string,
             ratio: number,
         ) => void;
+        onSourceLineYChange?: (
+            relationshipId: string,
+            y: number,
+        ) => void;
     },
 ): Edge<RelationshipEdgeData>[] {
     return model.relationships
@@ -62,6 +99,10 @@ export function buildRelationshipFlowEdges(
         .map((rel) => {
             const targetHandle = resolveTargetFkHandleId(rel, model);
             if (!targetHandle) return null;
+            const sourceTable = model.tables.find((t) => t.id === rel.sourceTableId);
+            const sourceColumnCount = sourceTable?.columns.length ?? 0;
+            const sourceAnchorMinY = tableTopPx();
+            const sourceAnchorMaxY = tableBottomPx(sourceColumnCount);
             return {
                 id: rel.id,
                 source: rel.sourceTableId,
@@ -76,8 +117,18 @@ export function buildRelationshipFlowEdges(
                 data: {
                     relationshipIds: [rel.id],
                     cardinality: rel.cardinality ?? "1:N",
+                    sourceLineY:
+                        rel.sourceLineY ??
+                        (typeof rel.sourceLineRatio === "number"
+                            ? sourceAnchorMinY +
+                              (sourceAnchorMaxY - sourceAnchorMinY) *
+                                  rel.sourceLineRatio
+                            : defaultSourceLineY(sourceTable)),
+                    sourceAnchorMinY,
+                    sourceAnchorMaxY,
                     linePivotRatio: rel.linePivotRatio ?? 0.5,
                     onLinePivotRatioChange: options?.onLinePivotRatioChange,
+                    onSourceLineYChange: options?.onSourceLineYChange,
                 },
             } satisfies Edge<RelationshipEdgeData>;
         })
