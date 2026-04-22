@@ -24,6 +24,16 @@ export type AlignType =
   | "h-gap"
   | "v-gap";
 
+function shouldDeleteFkColumnByRelationship(
+  rel: RelationshipModel,
+  targetColumn: ColumnModel | undefined
+): boolean {
+  return Boolean(
+    rel.autoCreatedTargetColumn ||
+      (targetColumn?.isForeignKey && targetColumn.referencesPrimaryColumnId === rel.originPkColumnId)
+  );
+}
+
 export interface DesignerState {
   doc: DesignDocument;
   setDoc: (doc: DesignDocument) => void;
@@ -48,6 +58,10 @@ export interface DesignerState {
   setRelationshipCanvasLineHidden: (relationshipId: string, hidden: boolean) => void;
   /** 관계 cardinality(1:1 / 1:N) 변경 */
   setRelationshipCardinality: (relationshipId: string, cardinality: "1:1" | "1:N") => void;
+  /** 관계선 꺾임 비율(0~1) 변경 */
+  setRelationshipLinePivotRatio: (relationshipId: string, ratio: number) => void;
+  /** 선택된 테이블/관계선을 한 번에 삭제(Undo 1스텝 보장) */
+  deleteSelection: (tableIds: string[], relationshipIds: string[]) => void;
 }
 
 export function createDesignerStore(
@@ -96,12 +110,7 @@ export function createDesignerStore(
                     r.targetTableId === rel.targetTableId &&
                     r.targetColumnId === rel.targetColumnId
                 );
-                const shouldDeleteFkColumn =
-                  !usedByOthers &&
-                  Boolean(
-                    rel.autoCreatedTargetColumn ||
-                      (targetColumn?.isForeignKey && targetColumn.referencesPrimaryColumnId === rel.originPkColumnId)
-                  );
+                const shouldDeleteFkColumn = !usedByOthers && shouldDeleteFkColumnByRelationship(rel, targetColumn);
                 if (shouldDeleteFkColumn) {
                   targetTable.columns = targetTable.columns.filter((c) => c.id !== rel.targetColumnId);
                 }
@@ -226,6 +235,46 @@ export function createDesignerStore(
             const rel = state.doc.model.relationships.find((r) => r.id === relationshipId);
             if (!rel) return;
             rel.cardinality = cardinality;
+          }),
+        setRelationshipLinePivotRatio: (relationshipId, ratio) =>
+          set((state) => {
+            const rel = state.doc.model.relationships.find((r) => r.id === relationshipId);
+            if (!rel) return;
+            const normalized = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0.5;
+            rel.linePivotRatio = normalized;
+          }),
+        deleteSelection: (tableIds, relationshipIds) =>
+          set((state) => {
+            const tableSet = new Set(tableIds);
+            const relSet = new Set(relationshipIds);
+            for (const rel of state.doc.model.relationships) {
+              if (tableSet.has(rel.sourceTableId) || tableSet.has(rel.targetTableId)) {
+                relSet.add(rel.id);
+              }
+            }
+            for (const rel of state.doc.model.relationships) {
+              if (!relSet.has(rel.id) || !rel.targetColumnId) continue;
+              if (tableSet.has(rel.targetTableId)) continue;
+              const targetTable = state.doc.model.tables.find((t) => t.id === rel.targetTableId);
+              if (!targetTable) continue;
+              const targetColumn = targetTable.columns.find((c) => c.id === rel.targetColumnId);
+              const usedByRemaining = state.doc.model.relationships.some(
+                (other) =>
+                  other.id !== rel.id &&
+                  !relSet.has(other.id) &&
+                  other.targetTableId === rel.targetTableId &&
+                  other.targetColumnId === rel.targetColumnId
+              );
+              if (!usedByRemaining && shouldDeleteFkColumnByRelationship(rel, targetColumn)) {
+                targetTable.columns = targetTable.columns.filter((c) => c.id !== rel.targetColumnId);
+              }
+            }
+            state.doc.model.relationships = state.doc.model.relationships.filter((r) => !relSet.has(r.id));
+            state.doc.model.tables = state.doc.model.tables.filter((t) => !tableSet.has(t.id));
+            state.doc.model.indexes = state.doc.model.indexes.filter((i) => !tableSet.has(i.tableId));
+            for (const tableId of tableSet) {
+              delete state.doc.layout.nodePositions[tableId];
+            }
           })
       })),
       {

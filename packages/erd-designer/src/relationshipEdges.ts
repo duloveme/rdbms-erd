@@ -5,6 +5,8 @@ import type { Edge } from "@xyflow/react";
 export type RelationshipEdgeData = {
     relationshipIds: string[];
     cardinality: "1:1" | "1:N";
+    linePivotRatio: number;
+    onLinePivotRatioChange?: (relationshipId: string, ratio: number) => void;
 };
 
 /** Single source handle on the right of each table node; all outgoing FK edges attach here. */
@@ -46,6 +48,12 @@ export function resolveTargetFkHandleId(
 export function buildRelationshipFlowEdges(
     model: DesignModel,
     revealHiddenLines: boolean,
+    options?: {
+        onLinePivotRatioChange?: (
+            relationshipId: string,
+            ratio: number,
+        ) => void;
+    },
 ): Edge<RelationshipEdgeData>[] {
     return model.relationships
         .filter((rel) =>
@@ -68,6 +76,8 @@ export function buildRelationshipFlowEdges(
                 data: {
                     relationshipIds: [rel.id],
                     cardinality: rel.cardinality ?? "1:N",
+                    linePivotRatio: rel.linePivotRatio ?? 0.5,
+                    onLinePivotRatioChange: options?.onLinePivotRatioChange,
                 },
             } satisfies Edge<RelationshipEdgeData>;
         })

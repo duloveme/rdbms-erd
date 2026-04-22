@@ -19,7 +19,6 @@ import {
     Position,
     ReactFlow,
     ReactFlowProvider,
-    getSmoothStepPath,
     type EdgeProps,
     type OnConnectEnd,
     type OnConnectStart,
@@ -140,30 +139,88 @@ type ClipboardTableBundle = {
     relationships: DesignDocument["model"]["relationships"];
 };
 
+type RelationshipRouteInfo = {
+    path: string;
+    pivotHandleX: number;
+    pivotHandleY: number;
+    primaryAxis: "x" | "y";
+};
+
+function clamp01(value: number): number {
+    if (!Number.isFinite(value)) return 0.5;
+    if (value <= 0) return 0;
+    if (value >= 1) return 1;
+    return value;
+}
+
+function lerp(a: number, b: number, ratio: number): number {
+    return a + (b - a) * ratio;
+}
+
+function buildRelationshipRouteInfo(params: {
+    sourceX: number;
+    sourceY: number;
+    targetX: number;
+    targetY: number;
+    targetPosition: Position;
+    ratio: number;
+}): RelationshipRouteInfo {
+    const {
+        sourceX,
+        sourceY,
+        targetX,
+        targetY,
+        targetPosition,
+        ratio,
+    } = params;
+    const normalized = clamp01(ratio);
+    if (
+        targetPosition === Position.Left ||
+        targetPosition === Position.Right
+    ) {
+        const pivotX = lerp(sourceX, targetX, normalized);
+        return {
+            path: `M ${sourceX} ${sourceY} L ${pivotX} ${sourceY} L ${pivotX} ${targetY} L ${targetX} ${targetY}`,
+            pivotHandleX: pivotX,
+            pivotHandleY: (sourceY + targetY) / 2,
+            primaryAxis: "x",
+        };
+    }
+    const pivotY = lerp(sourceY, targetY, normalized);
+    return {
+        path: `M ${sourceX} ${sourceY} L ${sourceX} ${pivotY} L ${targetX} ${pivotY} L ${targetX} ${targetY}`,
+        pivotHandleX: (sourceX + targetX) / 2,
+        pivotHandleY: pivotY,
+        primaryAxis: "y",
+    };
+}
+
 function RelationshipEdge({
     id,
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
     targetPosition,
     style,
     className,
     data,
+    selected,
 }: EdgeProps) {
-    const [path] = getSmoothStepPath({
+    const edgeData = data as RelationshipEdgeData | undefined;
+    const relationshipId = edgeData?.relationshipIds?.[0];
+    const routeInfo = buildRelationshipRouteInfo({
         sourceX,
         sourceY,
-        sourcePosition,
         targetX,
         targetY,
         targetPosition,
-        borderRadius: 10,
-        offset: 18,
+        ratio: edgeData?.linePivotRatio ?? 0.5,
     });
+    const path = routeInfo.path;
     const cardinality =
-        (data as RelationshipEdgeData | undefined)?.cardinality ?? "1:N";
+        edgeData?.cardinality ?? "1:N";
+    const onLinePivotRatioChange = edgeData?.onLinePivotRatioChange;
     // 끝단 표식은 "타깃으로 진입하는 방향" 기준으로 계산한다.
     const [ux, uy] =
         targetPosition === Position.Left
@@ -212,6 +269,67 @@ function RelationshipEdge({
                   return `${bar1} ${crow}`;
               })();
 
+    const onPivotPointerDown = useCallback(
+        (e: React.PointerEvent<SVGCircleElement>) => {
+            if (!relationshipId || !onLinePivotRatioChange) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const svg = e.currentTarget.ownerSVGElement;
+            if (!svg) return;
+
+            const toSvgPoint = (
+                clientX: number,
+                clientY: number,
+            ): { x: number; y: number } | null => {
+                const matrix = svg.getScreenCTM();
+                if (!matrix) return null;
+                const point = svg.createSVGPoint();
+                point.x = clientX;
+                point.y = clientY;
+                const transformed = point.matrixTransform(matrix.inverse());
+                return { x: transformed.x, y: transformed.y };
+            };
+
+            const updateRatio = (clientX: number, clientY: number) => {
+                const point = toSvgPoint(clientX, clientY);
+                if (!point) return;
+                if (routeInfo.primaryAxis === "x") {
+                    const width = targetX - sourceX;
+                    if (Math.abs(width) < 1e-6) return;
+                    const next = clamp01((point.x - sourceX) / width);
+                    onLinePivotRatioChange(relationshipId, next);
+                    return;
+                }
+                const height = targetY - sourceY;
+                if (Math.abs(height) < 1e-6) return;
+                const next = clamp01((point.y - sourceY) / height);
+                onLinePivotRatioChange(relationshipId, next);
+            };
+
+            const handleMove = (event: PointerEvent) => {
+                event.preventDefault();
+                updateRatio(event.clientX, event.clientY);
+            };
+            const handleUp = () => {
+                window.removeEventListener("pointermove", handleMove);
+                window.removeEventListener("pointerup", handleUp);
+            };
+
+            window.addEventListener("pointermove", handleMove);
+            window.addEventListener("pointerup", handleUp);
+            updateRatio(e.clientX, e.clientY);
+        },
+        [
+            onLinePivotRatioChange,
+            relationshipId,
+            routeInfo.primaryAxis,
+            sourceX,
+            sourceY,
+            targetX,
+            targetY,
+        ],
+    );
+
     return (
         <g className={className}>
             <BaseEdge id={id} path={path} style={style} />
@@ -222,6 +340,21 @@ function RelationshipEdge({
                 strokeWidth={strokeWidth}
                 strokeLinecap="round"
             />
+            {selected && relationshipId && onLinePivotRatioChange ? (
+                <circle
+                    className="erd-edge-pivot-handle"
+                    cx={routeInfo.pivotHandleX}
+                    cy={routeInfo.pivotHandleY}
+                    r={6}
+                    style={{
+                        cursor:
+                            routeInfo.primaryAxis === "x"
+                                ? "ew-resize"
+                                : "ns-resize",
+                    }}
+                    onPointerDown={onPivotPointerDown}
+                />
+            ) : null}
         </g>
     );
 }
@@ -603,10 +736,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const doc = useDesignerStore((s) => s.doc);
         const setDoc = useDesignerStore((s) => s.setDoc);
         const addTable = useDesignerStore((s) => s.addTable);
-        const removeTable = useDesignerStore((s) => s.removeTable);
         const addRelationship = useDesignerStore((s) => s.addRelationship);
-        const removeRelationship = useDesignerStore(
-            (s) => s.removeRelationship,
+        const deleteSelectionFromDoc = useDesignerStore(
+            (s) => s.deleteSelection,
         );
         const setTableMeta = useDesignerStore((s) => s.setTableMeta);
         const setTableColumns = useDesignerStore((s) => s.setTableColumns);
@@ -618,6 +750,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
         const setRelationshipCardinality = useDesignerStore(
             (s) => s.setRelationshipCardinality,
+        );
+        const setRelationshipLinePivotRatio = useDesignerStore(
+            (s) => s.setRelationshipLinePivotRatio,
         );
 
         const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -849,8 +984,17 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             return buildRelationshipFlowEdges(
                 doc.model,
                 revealHiddenRelationshipLines,
+                {
+                    onLinePivotRatioChange: (relationshipId, ratio) =>
+                        setRelationshipLinePivotRatio(relationshipId, ratio),
+                },
             );
-        }, [doc.model, hasDesign, revealHiddenRelationshipLines]);
+        }, [
+            doc.model,
+            hasDesign,
+            revealHiddenRelationshipLines,
+            setRelationshipLinePivotRatio,
+        ]);
 
         const diagramSignature = useMemo(
             () =>
@@ -1199,6 +1343,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         autoCreatedTargetColumn: rel.autoCreatedTargetColumn,
                         originPkColumnId: rel.sourceColumnId,
                         cardinality: relationshipCardinalityMode,
+                        linePivotRatio: 0.5,
                     });
                 }
             },
@@ -1264,37 +1409,44 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             [hasDesign, selectedNodeIds, setNodePosition, setNodePositions],
         );
 
-        /** Deletes selected relationship edges first, then selected tables (one action). */
+        /** Deletes selected relationship edges and tables in one store action (single undo step). */
         const deleteSelectedSelection = useCallback(() => {
             if (!hasDesign) return;
             if (selectedEdgeIds.length === 0 && selectedNodeIds.length === 0)
                 return;
-            const selectedEdgeSet = new Set(selectedEdgeIds);
-            const targetEdges = edges.filter((edge) =>
-                selectedEdgeSet.has(edge.id),
+            const relationshipIds = selectedEdgeIds.filter((id) =>
+                doc.model.relationships.some((rel) => rel.id === id),
             );
-            for (const edge of targetEdges) {
-                const relIds = (edge.data as RelationshipEdgeData | undefined)
-                    ?.relationshipIds;
-                if (relIds && relIds.length > 0) {
-                    for (const relId of relIds) removeRelationship(relId);
-                } else {
-                    removeRelationship(edge.id);
-                }
-            }
-            for (const id of selectedNodeIds) {
-                removeTable(id);
-            }
+            deleteSelectionFromDoc(selectedNodeIds, relationshipIds);
             setSelectedEdgeIds([]);
             setSelectedNodeIds([]);
         }, [
-            edges,
             hasDesign,
-            removeRelationship,
-            removeTable,
+            deleteSelectionFromDoc,
+            doc.model.relationships,
             selectedEdgeIds,
             selectedNodeIds,
         ]);
+
+        useEffect(() => {
+            const onKeyDown = (e: KeyboardEvent) => {
+                if (e.key !== "Backspace" && e.key !== "Delete") return;
+                const target = e.target as HTMLElement | null;
+                const tag = target?.tagName;
+                const editable =
+                    target?.isContentEditable ||
+                    tag === "INPUT" ||
+                    tag === "TEXTAREA" ||
+                    tag === "SELECT";
+                if (editable) return;
+                if (selectedNodeIds.length === 0 && selectedEdgeIds.length === 0)
+                    return;
+                e.preventDefault();
+                deleteSelectedSelection();
+            };
+            window.addEventListener("keydown", onKeyDown);
+            return () => window.removeEventListener("keydown", onKeyDown);
+        }, [deleteSelectedSelection, selectedEdgeIds.length, selectedNodeIds.length]);
 
         useImperativeHandle(
             ref,
@@ -1583,6 +1735,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     targetColumnId: nextTargetColumnId,
                     originPkColumnId: nextOriginPkColumnId,
                     cardinality: rel.cardinality ?? "1:N",
+                    linePivotRatio: rel.linePivotRatio ?? 0.5,
                 });
             }
             setSelectedNodeIds(pastedTableIds);
@@ -2085,6 +2238,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 proOptions={{ hideAttribution: true }}
                                 nodes={nodes}
                                 edges={edges}
+                                deleteKeyCode={null}
                                 elevateEdgesOnSelect={false}
                                 nodeTypes={nodeTypes}
                                 edgeTypes={edgeTypes}
@@ -2115,19 +2269,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 onConnectStart={onConnectStart}
                                 onConnect={onConnect}
                                 onEdgesDelete={(deleted) => {
-                                    for (const edge of deleted) {
-                                        const relIds = (
-                                            edge.data as
-                                                | RelationshipEdgeData
-                                                | undefined
-                                        )?.relationshipIds;
-                                        if (relIds && relIds.length > 0) {
-                                            for (const relId of relIds)
-                                                removeRelationship(relId);
-                                        } else {
-                                            removeRelationship(edge.id);
-                                        }
-                                    }
+                                    deleteSelectionFromDoc(
+                                        [],
+                                        deleted.map((edge) => edge.id),
+                                    );
                                 }}
                                 onConnectEnd={onConnectEnd}
                                 onEdgeContextMenu={onEdgeContextMenu}

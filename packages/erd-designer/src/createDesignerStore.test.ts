@@ -191,6 +191,90 @@ describe("createDesignerStore + zundo", () => {
     expect(useStore.getState().doc.model.relationships[0].canvasLineHidden).toBeUndefined();
   });
 
+  it("setRelationshipLinePivotRatio stores clamped ratio", () => {
+    const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addRelationship({
+      id: "r-pivot",
+      sourceTableId: "s",
+      targetTableId: "t"
+    });
+    useStore.getState().setRelationshipLinePivotRatio("r-pivot", 1.8);
+    expect(useStore.getState().doc.model.relationships[0].linePivotRatio).toBe(1);
+    useStore.getState().setRelationshipLinePivotRatio("r-pivot", -0.2);
+    expect(useStore.getState().doc.model.relationships[0].linePivotRatio).toBe(0);
+  });
+
+  it("deleteSelection removes table and connected relationships in one undo step", () => {
+    const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addTable({ id: "a", logicalName: "A", physicalName: "TA", columns: [] }, 0, 0);
+    useStore.getState().addTable({ id: "b", logicalName: "B", physicalName: "TB", columns: [] }, 100, 0);
+    useStore.getState().addRelationship({
+      id: "r-ab",
+      sourceTableId: "a",
+      targetTableId: "b"
+    });
+
+    useStore.getState().deleteSelection(["a"], []);
+    expect(useStore.getState().doc.model.tables.map((t) => t.id)).toEqual(["b"]);
+    expect(useStore.getState().doc.model.relationships).toHaveLength(0);
+
+    useStore.temporal.getState().undo();
+    expect(useStore.getState().doc.model.tables.map((t) => t.id).sort()).toEqual(["a", "b"]);
+    expect(useStore.getState().doc.model.relationships.map((r) => r.id)).toEqual(["r-ab"]);
+  });
+
+  it("deleteSelection removes relationship and FK column with undo/redo", () => {
+    const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addTable(
+      {
+        id: "pk",
+        logicalName: "P",
+        physicalName: "TP",
+        columns: [createColumn("postgres", { id: "pkc", logicalName: "ID", logicalType: "NUMBER", nullable: false })]
+      },
+      0,
+      0
+    );
+    useStore.getState().addTable(
+      {
+        id: "fk",
+        logicalName: "F",
+        physicalName: "TF",
+        columns: [createColumn("postgres", { id: "base", logicalName: "Name", logicalType: "TEXT" })]
+      },
+      100,
+      0
+    );
+    useStore.getState().setTableColumns("fk", [
+      ...useStore.getState().doc.model.tables.find((t) => t.id === "fk")!.columns,
+      createColumn("postgres", { id: "fkcol", logicalName: "ID", logicalType: "NUMBER" })
+    ]);
+    useStore.getState().addRelationship({
+      id: "r1",
+      sourceTableId: "pk",
+      targetTableId: "fk",
+      sourceColumnId: "pkc",
+      targetColumnId: "fkcol",
+      autoCreatedTargetColumn: true,
+      originPkColumnId: "pkc"
+    });
+
+    useStore.getState().deleteSelection([], ["r1"]);
+    const fkTableAfterDelete = useStore.getState().doc.model.tables.find((t) => t.id === "fk")!;
+    expect(useStore.getState().doc.model.relationships).toHaveLength(0);
+    expect(fkTableAfterDelete.columns.some((c) => c.id === "fkcol")).toBe(false);
+
+    useStore.temporal.getState().undo();
+    const fkTableAfterUndo = useStore.getState().doc.model.tables.find((t) => t.id === "fk")!;
+    expect(useStore.getState().doc.model.relationships.map((r) => r.id)).toEqual(["r1"]);
+    expect(fkTableAfterUndo.columns.some((c) => c.id === "fkcol")).toBe(true);
+
+    useStore.temporal.getState().redo();
+    const fkTableAfterRedo = useStore.getState().doc.model.tables.find((t) => t.id === "fk")!;
+    expect(useStore.getState().doc.model.relationships).toHaveLength(0);
+    expect(fkTableAfterRedo.columns.some((c) => c.id === "fkcol")).toBe(false);
+  });
+
   it("removeRelationship deletes FK column by column metadata", () => {
     const useStore = createDesignerStore({ initialDialect: "postgres" });
     useStore.getState().addTable(
