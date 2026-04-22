@@ -23,6 +23,8 @@ export interface ColumnModel {
   id: string;
   logicalName: string;
   physicalName: string;
+  /** 컬럼 설명(업무/도메인 메모). */
+  description?: string;
   logicalType: LogicalDataType;
   physicalType: string;
   defaultValue?: string;
@@ -30,8 +32,6 @@ export interface ColumnModel {
   isPrimaryKey?: boolean;
   isForeignKey?: boolean;
   referencesPrimaryColumnId?: string;
-  /** FK 컬럼에서만 사용. false이면 캔버스에서 해당 FK 관계선을 숨긴다(전역 선 표시가 켜져 있을 때만 적용). */
-  showFkRelationLine?: boolean;
   /** 테이블 노드에서 해당 컬럼 행 배경색 */
   color?: string;
 }
@@ -40,6 +40,8 @@ export interface TableModel {
   id: string;
   logicalName: string;
   physicalName: string;
+  /** 테이블 설명(업무/도메인 메모). */
+  description?: string;
   /** Dialect-dependent schema/catalog qualifier (e.g. `public`, `dbo`). */
   schemaName?: string;
   color?: string;
@@ -60,23 +62,42 @@ export interface RelationshipModel {
   autoCreatedTargetColumn?: boolean;
   /** FK가 최초로 연결된 PK 컬럼 id(컬럼명 변경과 무관) */
   originPkColumnId?: string;
+  /** 타깃 cardinality. 기본 1:N */
+  cardinality?: "1:1" | "1:N";
+  /** true이면 캔버스에서 해당 관계선을 기본적으로 숨긴다. 툴의「숨긴 관계선 보기」로만 표시 가능. */
+  canvasLineHidden?: boolean;
 }
 
 /**
- * 캔버스에 관계선을 그릴지 여부(전역 표시 + FK 컬럼의 라인 표시 옵션).
+ * 캔버스에 관계선을 그릴지 여부.
+ * - `revealHiddenLines === false`: `canvasLineHidden`인 관계는 제외.
+ * - `revealHiddenLines === true`: 숨김 처리된 관계도 함께 그린다(표시만, 속성은 바꾸지 않음).
  */
 export function isRelationshipLineRenderable(
   rel: RelationshipModel,
-  model: DesignModel,
-  globalLinesVisible: boolean
+  revealHiddenLines: boolean
 ): boolean {
-  if (!globalLinesVisible) return false;
-  if (!rel.targetColumnId) return true;
-  const targetTable = model.tables.find((t) => t.id === rel.targetTableId);
-  const col = targetTable?.columns.find((c) => c.id === rel.targetColumnId);
-  if (!col) return true;
-  if (!col.isForeignKey) return true;
-  return col.showFkRelationLine !== false;
+  if (rel.canvasLineHidden === true) return revealHiddenLines;
+  return true;
+}
+
+/** 구버전 `ColumnModel.showFkRelationLine === false`를 관계의 `canvasLineHidden`으로 옮긴 뒤 컬럼 플래그를 제거한다. */
+export function migrateLegacyFkLineVisibility(model: DesignModel): void {
+  for (const table of model.tables) {
+    for (const col of table.columns) {
+      const legacy = (col as { showFkRelationLine?: boolean }).showFkRelationLine;
+      if (legacy === false && col.isForeignKey) {
+        for (const rel of model.relationships) {
+          if (rel.targetTableId === table.id && rel.targetColumnId === col.id) {
+            rel.canvasLineHidden = true;
+          }
+        }
+      }
+      if ("showFkRelationLine" in col) {
+        delete (col as { showFkRelationLine?: boolean }).showFkRelationLine;
+      }
+    }
+  }
 }
 
 export interface IndexModel {
@@ -536,13 +557,13 @@ export function createColumn(
     logicalName: string;
     /** 생략 시 논리 이름과 동일한 물리 이름으로 생성된다. */
     physicalName?: string;
+    description?: string;
     logicalType: LogicalDataType;
     defaultValue?: string;
     nullable?: boolean;
     isPrimaryKey?: boolean;
     isForeignKey?: boolean;
     referencesPrimaryColumnId?: string;
-    showFkRelationLine?: boolean;
     color?: string;
   },
   options?: CoreDbMetaOptions
@@ -554,6 +575,7 @@ export function createColumn(
     id: params.id,
     logicalName: params.logicalName,
     physicalName,
+    description: params.description,
     logicalType: params.logicalType,
     physicalType: defaultPhysicalType(dialect, params.logicalType, options),
     defaultValue: params.defaultValue,
@@ -563,7 +585,6 @@ export function createColumn(
     referencesPrimaryColumnId: params.referencesPrimaryColumnId
   };
   if (params.color !== undefined) col.color = params.color;
-  if (isForeignKey && params.showFkRelationLine === false) col.showFkRelationLine = false;
   return col;
 }
 
@@ -614,7 +635,9 @@ export function validateDesignDocument(input: unknown, options?: CoreDbMetaOptio
     throw new Error("Invalid design document: layout is malformed");
   }
 
-  return input as unknown as DesignDocument;
+  const doc = input as unknown as DesignDocument;
+  migrateLegacyFkLineVisibility(doc.model);
+  return doc;
 }
 
 export function roundTripDesign(doc: DesignDocument): DesignDocument {

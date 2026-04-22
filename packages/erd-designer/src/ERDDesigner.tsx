@@ -5,6 +5,7 @@ import "@xyflow/react/dist/style.css";
 import {
     applyEdgeChanges,
     applyNodeChanges,
+    BaseEdge,
     Background,
     Connection,
     Controls,
@@ -18,8 +19,12 @@ import {
     Position,
     ReactFlow,
     ReactFlowProvider,
+    getSmoothStepPath,
+    type EdgeProps,
     type OnConnectEnd,
     type OnConnectStart,
+    type OnEdgeMouseHandler,
+    type OnEdgeContextMenu,
     type ReactFlowInstance,
 } from "@xyflow/react";
 import {
@@ -37,6 +42,7 @@ import {
     RdbmsDialect,
     resolveDialectMetas,
     serializeDesign,
+    type RelationshipModel,
     TableModel,
 } from "@rdbms-erd/core";
 import {
@@ -56,6 +62,7 @@ import {
     FileCode,
     FilePlus,
     FileImage,
+    KeyRound,
     Pencil,
     Menu,
     Moon,
@@ -89,6 +96,7 @@ import type { I18nKey, I18nVars } from "./i18n/types";
 import {
     TABLE_RELATIONSHIP_SOURCE_HANDLE_ID,
     buildRelationshipFlowEdges,
+    targetFkColumnHandleId,
     type RelationshipEdgeData,
 } from "./relationshipEdges";
 import { TableEditDialog } from "./TableEditDialog";
@@ -116,11 +124,12 @@ type InternalCreateTableContext = {
 
 interface TableNodeData extends Record<string, unknown> {
     table: TableModel;
-    incomingCount: number;
     compact: boolean;
     displayMode: CanvasDisplayMode;
     physicalTitle?: string;
     onEditTable: (tableId: string) => void;
+    /** 선택된 관계선의 양끝 테이블 강조(테이블 선택과 별개) */
+    relationshipEndpointHighlight?: boolean;
 }
 
 type ClipboardTableBundle = {
@@ -131,8 +140,108 @@ type ClipboardTableBundle = {
     relationships: DesignDocument["model"]["relationships"];
 };
 
-const HANDLE_GAP = 16;
+function RelationshipEdge({
+    id,
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    style,
+    className,
+    data,
+}: EdgeProps) {
+    const [path] = getSmoothStepPath({
+        sourceX,
+        sourceY,
+        sourcePosition,
+        targetX,
+        targetY,
+        targetPosition,
+        borderRadius: 10,
+        offset: 18,
+    });
+    const cardinality =
+        (data as RelationshipEdgeData | undefined)?.cardinality ?? "1:N";
+    // 끝단 표식은 "타깃으로 진입하는 방향" 기준으로 계산한다.
+    const [ux, uy] =
+        targetPosition === Position.Left
+            ? [1, 0]
+            : targetPosition === Position.Right
+              ? [-1, 0]
+              : targetPosition === Position.Top
+                ? [0, 1]
+                : targetPosition === Position.Bottom
+                  ? [0, -1]
+                  : (() => {
+                        const dx = targetX - sourceX;
+                        const dy = targetY - sourceY;
+                        const len = Math.hypot(dx, dy) || 1;
+                        return [dx / len, dy / len] as const;
+                    })();
+    const px = -uy;
+    const py = ux;
+    const stroke = (style?.stroke as string) ?? "#94a3b8";
+    const strokeWidth = Number(style?.strokeWidth ?? 1.6);
+    const elevated = className?.includes("erd-edge-elevated") ?? false;
+    const markStroke = elevated ? "#dc2626" : stroke;
+    const barHalf = 5;
+    const bar1x = targetX - ux * 18;
+    const bar1y = targetY - uy * 18;
+    const bar1 = `M ${bar1x - px * barHalf} ${bar1y - py * barHalf} L ${bar1x + px * barHalf} ${bar1y + py * barHalf}`;
+    const symbolPath =
+        cardinality === "1:1"
+            ? (() => {
+                  // 1:N과 동일하게 "세로선(바)"은 1개만 두고, 뒤쪽은 단일 선으로 표현한다.
+                  const ox = targetX - ux * 11;
+                  const oy = targetY - uy * 11;
+                  const one = `M ${ox} ${oy} L ${targetX} ${targetY}`;
+                  return `${bar1} ${one}`;
+              })()
+            : (() => {
+                  const ox = targetX - ux * 11;
+                  const oy = targetY - uy * 11;
+                  const upx = targetX + px * 6;
+                  const upy = targetY + py * 6;
+                  const midx = targetX;
+                  const midy = targetY;
+                  const downx = targetX - px * 6;
+                  const downy = targetY - py * 6;
+                  const crow = `M ${ox} ${oy} L ${upx} ${upy} M ${ox} ${oy} L ${midx} ${midy} M ${ox} ${oy} L ${downx} ${downy}`;
+                  return `${bar1} ${crow}`;
+              })();
+
+    return (
+        <g className={className}>
+            <BaseEdge id={id} path={path} style={style} />
+            <path
+                d={symbolPath}
+                fill="none"
+                stroke={markStroke}
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+            />
+        </g>
+    );
+}
+
 const HANDLE_TOP = 12;
+/** Approximate layout of table node body for left handle Y (aligns with first column row center). */
+const NODE_HEADER_PX = 39;
+const NODE_BODY_PAD_TOP = 2;
+const NODE_ROW_PX = 36;
+
+function targetRowCenterTopPx(
+    rowIndex: number,
+    columnCount: number,
+): number {
+    if (columnCount <= 0) return NODE_HEADER_PX + 18;
+    const idx = Math.max(0, Math.min(rowIndex, columnCount - 1));
+    return (
+        NODE_HEADER_PX + NODE_BODY_PAD_TOP + idx * NODE_ROW_PX + NODE_ROW_PX / 2
+    );
+}
 
 function parseHexColor(
     input: string,
@@ -187,18 +296,17 @@ const TableNode = memo(function TableNode({
     }, []);
     const {
         table,
-        incomingCount,
         compact,
         displayMode,
         onEditTable,
         physicalTitle,
+        relationshipEndpointHighlight,
     } = data;
     const title =
         displayMode === "logical"
             ? table.logicalName
             : physicalTitle || table.physicalName || table.logicalName;
 
-    const targetSlots = Math.max(1, incomingCount + 1);
     const headerBackground = table.color ?? "#e8f0ff";
     const headerTextColor = getHeaderTextColor(headerBackground);
     const headerButtonBg =
@@ -206,14 +314,23 @@ const TableNode = memo(function TableNode({
             ? "rgba(255,255,255,0.18)"
             : "rgba(15,23,42,0.06)";
 
+    const cardClass = [
+        "erd-node-card",
+        selected ? "erd-node-card--selected" : "",
+        relationshipEndpointHighlight ? "erd-node-card--rel-endpoint" : "",
+    ]
+        .filter(Boolean)
+        .join(" ");
+
     return (
         <div
-            className={
-                selected
-                    ? "erd-node-card erd-node-card--selected"
-                    : "erd-node-card"
-            }
+            className={cardClass}
+            data-table-id={table.id}
             aria-label={`table-${table.physicalName}`}
+            onDoubleClick={(e) => {
+                e.stopPropagation();
+                onEditTable(table.id);
+            }}
         >
             <Handle
                 id={TABLE_RELATIONSHIP_SOURCE_HANDLE_ID}
@@ -223,18 +340,30 @@ const TableNode = memo(function TableNode({
                 style={{ top: HANDLE_TOP, right: -6 }}
                 aria-label="edge-source"
             />
-            {Array.from({ length: targetSlots }).map((_, idx) => (
-                <Handle
-                    key={`target-${idx}`}
-                    id={`target-${idx}`}
-                    type="target"
-                    position={Position.Left}
-                    className="erd-handle-dot"
-                    isConnectableStart={false}
-                    style={{ top: HANDLE_TOP + idx * HANDLE_GAP, left: -6 }}
-                    aria-label={`edge-target-${idx}`}
-                />
-            ))}
+            {compact
+                ? table.columns.map((col, rowIndex) =>
+                      col.isForeignKey ? (
+                          <Handle
+                              key={col.id}
+                              id={targetFkColumnHandleId(col.id)}
+                              type="target"
+                              position={Position.Left}
+                              className="erd-handle-dot erd-handle-dot--fk"
+                              isConnectableStart={false}
+                              style={{
+                                  position: "absolute",
+                                  left: 0,
+                                  top: targetRowCenterTopPx(
+                                      rowIndex,
+                                      table.columns.length,
+                                  ),
+                                  transform: "translate(-50%, -50%)",
+                              }}
+                              aria-label={`edge-target-${col.id}`}
+                          />
+                      ) : null,
+                  )
+                : null}
             <div
                 className="erd-node-header"
                 style={{ background: headerBackground, color: headerTextColor }}
@@ -292,16 +421,48 @@ const TableNode = memo(function TableNode({
                                         : undefined
                                 }
                             >
-                                <span
-                                    className="erd-node-row-name"
-                                    style={{
-                                        fontStyle: col.isForeignKey
-                                            ? "italic"
-                                            : "normal",
-                                    }}
-                                >
-                                    {primary}
-                                </span>
+                                {col.isForeignKey ? (
+                                    <Handle
+                                        id={targetFkColumnHandleId(col.id)}
+                                        type="target"
+                                        position={Position.Left}
+                                        className="erd-handle-dot erd-handle-dot--fk"
+                                        isConnectableStart={false}
+                                        style={{
+                                            position: "absolute",
+                                            left: 0,
+                                            top: "50%",
+                                            transform: "translate(-50%, -50%)",
+                                        }}
+                                        aria-label={`edge-target-${col.id}`}
+                                    />
+                                ) : null}
+                                <div className="erd-node-row-primary">
+                                    <span
+                                        className="erd-node-row-pk-icon"
+                                        aria-hidden
+                                    >
+                                        {col.isPrimaryKey ? (
+                                            <KeyRound
+                                                size={11}
+                                                strokeWidth={2.25}
+                                            />
+                                        ) : null}
+                                    </span>
+                                    <span
+                                        className="erd-node-row-name"
+                                        style={{
+                                            fontStyle: col.isForeignKey
+                                                ? "italic"
+                                                : "normal",
+                                            fontWeight: col.isPrimaryKey
+                                                ? 700
+                                                : 500,
+                                        }}
+                                    >
+                                        {primary}
+                                    </span>
+                                </div>
                                 <span className="erd-node-row-meta">
                                     {secondary}
                                 </span>
@@ -332,7 +493,7 @@ export interface ERDDesignerHandle {
  *
  * 1. `slot1` — before the built-in **file** group (New ER, save, PDF, image, DDL).
  * 2. `slot2` — after the file block (and optional copy hint), before **tools** (add table, delete selection).
- * 3. `slot3` — after tools, before **view** (logical/physical, relationship lines).
+ * 3. `slot3` — after tools, before **view** (logical/physical, reveal hidden relationship lines).
  * 4. `slot4` — after view, before **edit** (multi-select, copy/paste, undo/redo).
  * 5. `slot5` — after edit, before **align** (align/distribute, fit view).
  * `trailing` — right cluster (`margin-left: auto`), before `toolbarExtra` and the panel toggle. Wrap in `div.erd-toolbar-group` if you want a separate visual group.
@@ -358,12 +519,15 @@ export interface ERDDesignerProps {
     toolbarSlots?: ToolbarSlots;
     largeDiagramThreshold?: number;
     /**
-     * 전체 관계선 표시. 지정 시 제어 컴포넌트로 동작하고, 생략 시 내부 상태(`defaultRelationshipLinesVisible`)를 사용한다.
+     * 캔버스에서 `canvasLineHidden`인 관계선까지 임시로 그릴지(표시만, 모델은 변경하지 않음).
+     * 지정 시 제어 컴포넌트로 동작하고, 생략 시 `defaultRevealHiddenRelationshipLines`를 사용한다.
      */
-    relationshipLinesVisible?: boolean;
-    /** 비제어 모드일 때 관계선 초기 표시 여부. 기본 true. */
-    defaultRelationshipLinesVisible?: boolean;
-    onRelationshipLinesVisibleChange?: (visible: boolean) => void;
+    revealHiddenRelationshipLines?: boolean;
+    /** 비제어 모드일 때「숨긴 관계선 보기」초기값. 기본 false. */
+    defaultRevealHiddenRelationshipLines?: boolean;
+    onRevealHiddenRelationshipLinesChange?: (reveal: boolean) => void;
+    /** 선택된 관계선을 노드보다 앞으로 올릴지 여부. 기본 false. */
+    elevateSelectedRelationships?: boolean;
     /** UI locale for built-in bundles (`ko*`, otherwise `en`). Ignored when `t` is set. */
     locale?: string;
     /** Overrides on top of the locale bundle (hybrid i18n). */
@@ -394,6 +558,7 @@ export type ERDDesignerShellProps = Omit<
 >;
 
 const nodeTypes = { tableNode: TableNode };
+const edgeTypes = { relationship: RelationshipEdge };
 
 const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
     function ERDDesignerShell(
@@ -406,9 +571,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             toolbarSlots,
             toolbarExtra,
             largeDiagramThreshold = 120,
-            relationshipLinesVisible: relationshipLinesVisibleProp,
-            defaultRelationshipLinesVisible = true,
-            onRelationshipLinesVisibleChange,
+            revealHiddenRelationshipLines: revealHiddenRelationshipLinesProp,
+            defaultRevealHiddenRelationshipLines = false,
+            onRevealHiddenRelationshipLinesChange,
+            elevateSelectedRelationships = false,
             showRightPanel = false,
             themeMode: themeModeProp,
             defaultThemeMode = "light",
@@ -447,9 +613,18 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const setNodePosition = useDesignerStore((s) => s.setNodePosition);
         const setNodePositions = useDesignerStore((s) => s.setNodePositions);
         const alignSelected = useDesignerStore((s) => s.alignSelected);
+        const setRelationshipCanvasLineHidden = useDesignerStore(
+            (s) => s.setRelationshipCanvasLineHidden,
+        );
+        const setRelationshipCardinality = useDesignerStore(
+            (s) => s.setRelationshipCardinality,
+        );
 
         const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
         const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
+        const [relationshipCardinalityMode, setRelationshipCardinalityMode] =
+            useState<RelationshipModel["cardinality"]>("1:N");
+        const [elevatedEdgeIds, setElevatedEdgeIds] = useState<string[]>([]);
         const [displayMode, setDisplayMode] =
             useState<CanvasDisplayMode>("logical");
         const themeControlled = themeModeProp !== undefined;
@@ -463,33 +638,27 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             },
             [onThemeModeChange, themeControlled],
         );
-        const linesControlled = relationshipLinesVisibleProp !== undefined;
-        const [linesVisibleInternal, setLinesVisibleInternal] = useState(
-            defaultRelationshipLinesVisible,
+        const revealControlled =
+            revealHiddenRelationshipLinesProp !== undefined;
+        const [revealHiddenInternal, setRevealHiddenInternal] = useState(
+            defaultRevealHiddenRelationshipLines,
         );
-        const showRelationshipLines = linesControlled
-            ? relationshipLinesVisibleProp
-            : linesVisibleInternal;
-        const setShowRelationshipLines = useCallback(
+        const revealHiddenRelationshipLines = revealControlled
+            ? revealHiddenRelationshipLinesProp
+            : revealHiddenInternal;
+        const setRevealHiddenRelationshipLines = useCallback(
             (next: boolean) => {
-                if (!linesControlled) setLinesVisibleInternal(next);
-                onRelationshipLinesVisibleChange?.(next);
+                if (!revealControlled) setRevealHiddenInternal(next);
+                onRevealHiddenRelationshipLinesChange?.(next);
             },
-            [linesControlled, onRelationshipLinesVisibleChange],
+            [revealControlled, onRevealHiddenRelationshipLinesChange],
         );
 
-        const linesPrevRef = useRef<boolean | null>(null);
-        useEffect(() => {
-            if (linesPrevRef.current === null) {
-                linesPrevRef.current = showRelationshipLines;
-                return;
-            }
-            const prev = linesPrevRef.current;
-            linesPrevRef.current = showRelationshipLines;
-            if (showRelationshipLines && prev === false) {
-                useDesignerStore.getState().revealAllFkRelationLinesInDoc();
-            }
-        }, [showRelationshipLines, useDesignerStore]);
+        const [edgeContextMenu, setEdgeContextMenu] = useState<{
+            clientX: number;
+            clientY: number;
+            edgeId: string;
+        } | null>(null);
 
         const [editingTableId, setEditingTableId] = useState<string | null>(
             null,
@@ -499,7 +668,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const [createTableContext, setCreateTableContext] =
             useState<InternalCreateTableContext | null>(null);
         const [selectionDragArmed, setSelectionDragArmed] = useState(false);
-        const [copyHint, setCopyHint] = useState<string>("");
         const [panelVisible, setPanelVisible] = useState(false);
         const [panelTableQuery, setPanelTableQuery] = useState("");
         const [hasDesign, setHasDesign] = useState<boolean>(Boolean(value));
@@ -526,6 +694,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             handleId?: string | null;
         } | null>(null);
         const canvasRootRef = useRef<HTMLDivElement | null>(null);
+        const edgeContextMenuRef = useRef<HTMLDivElement | null>(null);
 
         useEffect(() => {
             if (!value) {
@@ -563,13 +732,36 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             onChange?.(doc);
         }, [doc, hasDesign, onChange]);
 
-        const incomingCountByTable = useMemo(() => {
-            const map: Record<string, number> = {};
-            for (const rel of doc.model.relationships) {
-                map[rel.targetTableId] = (map[rel.targetTableId] ?? 0) + 1;
+        const relationshipEndpointTableIds = useMemo(() => {
+            const set = new Set<string>();
+            for (const id of selectedEdgeIds) {
+                const rel = doc.model.relationships.find((r) => r.id === id);
+                if (rel) {
+                    set.add(rel.sourceTableId);
+                    set.add(rel.targetTableId);
+                }
             }
-            return map;
-        }, [doc.model.relationships]);
+            return set;
+        }, [doc.model.relationships, selectedEdgeIds]);
+
+        useEffect(() => {
+            if (!edgeContextMenu) return;
+            const onKey = (e: KeyboardEvent) => {
+                if (e.key === "Escape") setEdgeContextMenu(null);
+            };
+            const onDown = (e: MouseEvent) => {
+                const el = edgeContextMenuRef.current;
+                const t = e.target as Node | null;
+                if (el && t && el.contains(t)) return;
+                setEdgeContextMenu(null);
+            };
+            window.addEventListener("keydown", onKey);
+            window.addEventListener("mousedown", onDown);
+            return () => {
+                window.removeEventListener("keydown", onKey);
+                window.removeEventListener("mousedown", onDown);
+            };
+        }, [edgeContextMenu]);
 
         const tableCount = doc.model.tables.length;
         const largeDiagram = tableCount >= largeDiagramThreshold;
@@ -633,11 +825,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     },
                     data: {
                         table,
-                        incomingCount: incomingCountByTable[table.id] ?? 0,
                         compact: largeDiagram,
                         displayMode,
                         physicalTitle: formatPhysicalTableName(table),
                         onEditTable,
+                        relationshipEndpointHighlight:
+                            relationshipEndpointTableIds.has(table.id),
                     },
                 })),
             [
@@ -645,21 +838,29 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 displayMode,
                 formatPhysicalTableName,
                 hasDesign,
-                incomingCountByTable,
                 largeDiagram,
                 onEditTable,
+                relationshipEndpointTableIds,
             ],
         );
 
         const flowEdges: Edge<RelationshipEdgeData>[] = useMemo(() => {
             if (!hasDesign) return [];
-            return buildRelationshipFlowEdges(doc.model, showRelationshipLines);
-        }, [doc.model, hasDesign, showRelationshipLines]);
+            return buildRelationshipFlowEdges(
+                doc.model,
+                revealHiddenRelationshipLines,
+            );
+        }, [doc.model, hasDesign, revealHiddenRelationshipLines]);
 
         const diagramSignature = useMemo(
             () =>
-                `${showRelationshipLines ? 1 : 0}:${largeDiagram ? 1 : 0}:${displayMode}:${serializeDesign(doc)}`,
-            [displayMode, doc, largeDiagram, showRelationshipLines],
+                `${revealHiddenRelationshipLines ? 1 : 0}:${largeDiagram ? 1 : 0}:${displayMode}:${serializeDesign(doc)}`,
+            [
+                displayMode,
+                doc,
+                largeDiagram,
+                revealHiddenRelationshipLines,
+            ],
         );
 
         const [nodes, setNodes] = useState<Node<TableNodeData>[]>(flowNodes);
@@ -698,6 +899,36 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             });
         }, [diagramSignature]);
 
+        useEffect(() => {
+            const elevated = new Set(elevatedEdgeIds);
+            setEdges((prev) =>
+                prev.map((edge) => {
+                    const raw = edge.className ?? "";
+                    const withoutFlag = raw
+                        .split(" ")
+                        .filter(
+                            (name) =>
+                                name.length > 0 &&
+                                name !== "erd-edge-elevated",
+                        )
+                        .join(" ");
+                    const shouldElevate =
+                        elevateSelectedRelationships && elevated.has(edge.id);
+                    const className = shouldElevate
+                        ? `${withoutFlag} erd-edge-elevated`.trim()
+                        : withoutFlag || undefined;
+                    const zIndex = shouldElevate ? 1200 : 0;
+                    if (
+                        (edge.className ?? undefined) === className &&
+                        (edge.zIndex ?? 0) === zIndex
+                    ) {
+                        return edge;
+                    }
+                    return { ...edge, className, zIndex };
+                }),
+            );
+        }, [elevateSelectedRelationships, elevatedEdgeIds]);
+
         const onNodesChange = useCallback(
             (changes: NodeChange<Node<TableNodeData>>[]) => {
                 setNodes((nds) => applyNodeChanges(changes, nds));
@@ -707,6 +938,19 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const onEdgesChange = useCallback((changes: EdgeChange[]) => {
             setEdges((eds) => applyEdgeChanges(changes, eds));
+            const selectionChanges = changes.filter(
+                (c): c is Extract<EdgeChange, { type: "select" }> =>
+                    c.type === "select",
+            );
+            if (selectionChanges.length === 0) return;
+            setSelectedEdgeIds((prev) => {
+                const next = new Set(prev);
+                for (const c of selectionChanges) {
+                    if (c.selected) next.add(c.id);
+                    else next.delete(c.id);
+                }
+                return [...next];
+            });
         }, []);
 
         const onSelectionChange = useCallback(
@@ -718,11 +962,58 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 selectionSigRef.current = next;
                 setSelectedNodeIds(params.nodes.map((n) => n.id));
                 setSelectedEdgeIds(params.edges.map((e) => e.id));
+                if (params.edges.length > 0) {
+                    setElevatedEdgeIds(params.edges.map((e) => e.id));
+                } else {
+                    setElevatedEdgeIds([]);
+                }
                 if (selectionDragArmed) {
                     setSelectionDragArmed(false);
                 }
             },
             [selectionDragArmed],
+        );
+
+        const onEdgeClick = useCallback<OnEdgeMouseHandler>(
+            (_event, edge) => {
+                setElevatedEdgeIds([edge.id]);
+            },
+            [],
+        );
+
+        useEffect(() => {
+            setNodes((prev) =>
+                prev.map((node) => {
+                    const active = relationshipEndpointTableIds.has(node.id);
+                    const data = node.data as TableNodeData;
+                    if (data.relationshipEndpointHighlight === active) {
+                        return node;
+                    }
+                    return {
+                        ...node,
+                        data: {
+                            ...data,
+                            relationshipEndpointHighlight: active,
+                        },
+                    };
+                }),
+            );
+        }, [relationshipEndpointTableIds]);
+
+        const onEdgeContextMenu = useCallback<OnEdgeContextMenu>(
+            (event, edge) => {
+                event.preventDefault();
+                if (!hasDesign) return;
+                if (!edge.selected && !selectedEdgeIds.includes(edge.id)) {
+                    return;
+                }
+                setEdgeContextMenu({
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    edgeId: edge.id,
+                });
+            },
+            [hasDesign, selectedEdgeIds],
         );
 
         const onFlowInit = useCallback(
@@ -907,6 +1198,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         targetColumnId: rel.targetColumnId,
                         autoCreatedTargetColumn: rel.autoCreatedTargetColumn,
                         originPkColumnId: rel.sourceColumnId,
+                        cardinality: relationshipCardinalityMode,
                     });
                 }
             },
@@ -916,6 +1208,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 doc.model.dialect,
                 doc.model.tables,
                 hasDesign,
+                relationshipCardinalityMode,
                 setTableColumns,
             ],
         );
@@ -1100,7 +1393,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     return;
                 }
                 const el = event.target as HTMLElement | null;
-                if (el?.closest(".react-flow__node")) {
+                const tableHost = el?.closest<HTMLElement>("[data-table-id]");
+                const targetTableId = tableHost?.dataset.tableId;
+                const source = pendingConnectSourceRef.current;
+                if (targetTableId && source?.tableId) {
+                    if (hasDesign && targetTableId !== source.tableId) {
+                        connectWithForeignKey(source.tableId, targetTableId);
+                    }
                     pendingConnectSourceRef.current = null;
                     return;
                 }
@@ -1121,7 +1420,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     x: clientX,
                     y: clientY,
                 }) ?? { x: clientX, y: clientY };
-                const source = pendingConnectSourceRef.current;
                 const sourceTable = source
                     ? doc.model.tables.find((t) => t.id === source.tableId)
                     : undefined;
@@ -1147,7 +1445,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 pendingConnectSourceRef.current = null;
             },
             [
+                connectWithForeignKey,
                 doc.model.tables,
+                hasDesign,
                 onRequestCreateTable,
                 openCreateTableDialogFromRequest,
             ],
@@ -1282,6 +1582,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     sourceColumnId: nextSourceColumnId,
                     targetColumnId: nextTargetColumnId,
                     originPkColumnId: nextOriginPkColumnId,
+                    cardinality: rel.cardinality ?? "1:N",
                 });
             }
             setSelectedNodeIds(pastedTableIds);
@@ -1289,30 +1590,43 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         }, [addRelationship, addTable, hasDesign]);
 
         const exportCanvasBlob = useCallback(async (): Promise<Blob | null> => {
-            const canvasEl = canvasRootRef.current?.querySelector(
+            const host = canvasRootRef.current;
+            if (!host) return null;
+
+            const selectors = [
                 ".react-flow",
-            ) as HTMLElement | null;
-            if (!canvasEl) return null;
-            return toBlob(canvasEl, {
-                cacheBust: true,
-                pixelRatio: 2,
-                backgroundColor: "#ffffff",
-                filter: (node) => {
-                    if (!(node instanceof HTMLElement)) return true;
-                    if (
-                        node.classList.contains("react-flow__controls") ||
-                        node.classList.contains("react-flow__minimap") ||
-                        node.classList.contains("react-flow__attribution") ||
-                        node.classList.contains("react-flow__selection") ||
-                        node.classList.contains(
-                            "react-flow__nodesselection-rect",
-                        )
-                    ) {
-                        return false;
-                    }
-                    return true;
-                },
-            });
+                ".react-flow__viewport",
+                ".erd-canvas-inner",
+            ];
+            for (const selector of selectors) {
+                const canvasEl = host.querySelector(selector) as HTMLElement | null;
+                if (!canvasEl) continue;
+                try {
+                    const blob = await toBlob(canvasEl, {
+                        cacheBust: true,
+                        pixelRatio: 2,
+                        backgroundColor: "#ffffff",
+                        filter: (node) => {
+                            if (!(node instanceof HTMLElement)) return true;
+                            if (
+                                node.classList.contains("erd-edge-context-menu") ||
+                                node.classList.contains("react-flow__controls") ||
+                                node.classList.contains("react-flow__minimap") ||
+                                node.classList.contains("react-flow__attribution") ||
+                                node.classList.contains("react-flow__selection") ||
+                                node.classList.contains(
+                                    "react-flow__nodesselection-rect",
+                                )
+                            ) {
+                                return false;
+                            }
+                            return true;
+                        },
+                    });
+                    if (blob) return blob;
+                } catch {}
+            }
+            return null;
         }, []);
 
         const exportPdf = useCallback(async () => {
@@ -1345,25 +1659,17 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const copyCanvasImageToClipboard = useCallback(async () => {
             if (!hasDesign) return;
             const blob = await exportCanvasBlob();
-            if (!blob || typeof ClipboardItem === "undefined") {
-                setCopyHint(t("copy.image.fail"));
-                window.setTimeout(() => setCopyHint(""), 1200);
-                return;
-            }
+            if (!blob || typeof ClipboardItem === "undefined") return;
             try {
                 await navigator.clipboard.write([
                     new ClipboardItem({ "image/png": blob }),
                 ]);
-                setCopyHint(t("copy.image.ok"));
-            } catch {
-                setCopyHint(t("copy.image.fail"));
-            }
-            window.setTimeout(() => setCopyHint(""), 1200);
-        }, [exportCanvasBlob, hasDesign, t]);
+            } catch {}
+        }, [exportCanvasBlob, hasDesign]);
 
         return (
             <div
-                className={`erd-root${selectionDragArmed ? " erd-selection-armed" : ""}${themeMode === "dark" ? " erd-root--dark" : ""}`}
+                className={`erd-root${selectionDragArmed ? " erd-selection-armed" : ""}${themeMode === "dark" ? " erd-root--dark" : ""}${elevateSelectedRelationships ? " erd-root--elevate-selected-relationships" : ""}`}
                 style={{
                     height: "100%",
                     width: "100%",
@@ -1432,21 +1738,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             <FileCode size={16} />
                         </button>
                     </div>
-                    {copyHint ? (
-                        <>
-                            <span className="erd-toolbar-sep" />
-                            <div className="erd-toolbar-group">
-                                <span
-                                    style={{
-                                        fontSize: 12,
-                                        color: "var(--erd-text-muted)",
-                                    }}
-                                >
-                                    {copyHint}
-                                </span>
-                            </div>
-                        </>
-                    ) : null}
                     {toolbarSlots?.slot2 ? (
                         <>
                             <span className="erd-toolbar-sep" />
@@ -1492,6 +1783,33 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     <div className="erd-toolbar-group">
                         <button
                             type="button"
+                            className={`erd-toolbar-btn${relationshipCardinalityMode === "1:1" ? " erd-toolbar-btn--active" : ""}`}
+                            onClick={() => setRelationshipCardinalityMode("1:1")}
+                            aria-pressed={
+                                relationshipCardinalityMode === "1:1"
+                            }
+                            title={t("toolbar.cardinality.oneToOne")}
+                            disabled={toolbarDisabled}
+                        >
+                            {t("toolbar.cardinality.oneToOne")}
+                        </button>
+                        <button
+                            type="button"
+                            className={`erd-toolbar-btn${relationshipCardinalityMode === "1:N" ? " erd-toolbar-btn--active" : ""}`}
+                            onClick={() => setRelationshipCardinalityMode("1:N")}
+                            aria-pressed={
+                                relationshipCardinalityMode === "1:N"
+                            }
+                            title={t("toolbar.cardinality.oneToMany")}
+                            disabled={toolbarDisabled}
+                        >
+                            {t("toolbar.cardinality.oneToMany")}
+                        </button>
+                    </div>
+                    <span className="erd-toolbar-sep" />
+                    <div className="erd-toolbar-group">
+                        <button
+                            type="button"
                             className="erd-toolbar-btn erd-toolbar-btn--logical-physical"
                             title={`${t("toolbar.modeToggle")}: ${displayMode === "logical" ? t("toolbar.mode.logical") : t("toolbar.mode.physical")}`}
                             aria-label={`${t("toolbar.modeToggle")}: ${displayMode === "logical" ? t("toolbar.mode.logical") : t("toolbar.mode.physical")}`}
@@ -1513,22 +1831,24 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             type="button"
                             className="erd-toolbar-btn"
                             title={
-                                showRelationshipLines
-                                    ? t("toolbar.lines.hide")
-                                    : t("toolbar.lines.show")
+                                revealHiddenRelationshipLines
+                                    ? t("toolbar.lines.onlyNonHidden")
+                                    : t("toolbar.lines.revealHidden")
                             }
                             aria-label={
-                                showRelationshipLines
-                                    ? t("toolbar.lines.hide")
-                                    : t("toolbar.lines.show")
+                                revealHiddenRelationshipLines
+                                    ? t("toolbar.lines.onlyNonHidden")
+                                    : t("toolbar.lines.revealHidden")
                             }
-                            aria-pressed={showRelationshipLines}
+                            aria-pressed={revealHiddenRelationshipLines}
                             disabled={toolbarDisabled}
                             onClick={() =>
-                                setShowRelationshipLines(!showRelationshipLines)
+                                setRevealHiddenRelationshipLines(
+                                    !revealHiddenRelationshipLines,
+                                )
                             }
                         >
-                            {showRelationshipLines ? (
+                            {revealHiddenRelationshipLines ? (
                                 <Eye size={16} />
                             ) : (
                                 <EyeOff size={16} />
@@ -1765,7 +2085,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 proOptions={{ hideAttribution: true }}
                                 nodes={nodes}
                                 edges={edges}
+                                elevateEdgesOnSelect={false}
                                 nodeTypes={nodeTypes}
+                                edgeTypes={edgeTypes}
                                 onlyRenderVisibleElements={largeDiagram}
                                 fitView={false}
                                 onInit={onFlowInit}
@@ -1778,11 +2100,17 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 selectionOnDrag={selectionDragArmed}
                                 panOnDrag={!selectionDragArmed}
                                 onPaneClick={() => {
+                                    setEdgeContextMenu(null);
+                                    setElevatedEdgeIds([]);
                                     if (selectionDragArmed)
                                         setSelectionDragArmed(false);
                                 }}
                                 onNodesChange={onNodesChange}
                                 onEdgesChange={onEdgesChange}
+                                onNodeClick={() => {
+                                    setElevatedEdgeIds([]);
+                                }}
+                                onEdgeClick={onEdgeClick}
                                 onNodeDragStop={onNodeDragStop}
                                 onConnectStart={onConnectStart}
                                 onConnect={onConnect}
@@ -1802,12 +2130,100 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                     }
                                 }}
                                 onConnectEnd={onConnectEnd}
+                                onEdgeContextMenu={onEdgeContextMenu}
                                 onSelectionChange={onSelectionChange}
                             >
                                 {!largeDiagram ? <MiniMap /> : null}
                                 <Controls />
                                 <Background />
                             </ReactFlow>
+                            {edgeContextMenu ? (
+                                <div
+                                    ref={edgeContextMenuRef}
+                                    className="erd-edge-context-menu"
+                                    style={{
+                                        position: "fixed",
+                                        left: edgeContextMenu.clientX,
+                                        top: edgeContextMenu.clientY,
+                                        zIndex: 80,
+                                    }}
+                                    role="menu"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                    {(() => {
+                                        const rel = doc.model.relationships.find(
+                                            (r) =>
+                                                r.id === edgeContextMenu.edgeId,
+                                        );
+                                        const hidden =
+                                            rel?.canvasLineHidden === true;
+                                        const cardinality =
+                                            rel?.cardinality ?? "1:N";
+                                        return (
+                                            <>
+                                                <button
+                                                    type="button"
+                                                    className={`erd-edge-context-menu__item${cardinality === "1:1" ? " erd-edge-context-menu__item--active" : ""}`}
+                                                    role="menuitemradio"
+                                                    aria-checked={
+                                                        cardinality === "1:1"
+                                                    }
+                                                    onClick={() => {
+                                                        setRelationshipCardinality(
+                                                            edgeContextMenu.edgeId,
+                                                            "1:1",
+                                                        );
+                                                        setEdgeContextMenu(null);
+                                                    }}
+                                                >
+                                                    {t(
+                                                        "context.edge.cardinality.oneToOne",
+                                                    )}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className={`erd-edge-context-menu__item${cardinality === "1:N" ? " erd-edge-context-menu__item--active" : ""}`}
+                                                    role="menuitemradio"
+                                                    aria-checked={
+                                                        cardinality === "1:N"
+                                                    }
+                                                    onClick={() => {
+                                                        setRelationshipCardinality(
+                                                            edgeContextMenu.edgeId,
+                                                            "1:N",
+                                                        );
+                                                        setEdgeContextMenu(null);
+                                                    }}
+                                                >
+                                                    {t(
+                                                        "context.edge.cardinality.oneToMany",
+                                                    )}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="erd-edge-context-menu__item"
+                                                    role="menuitem"
+                                                    onClick={() => {
+                                                        setRelationshipCanvasLineHidden(
+                                                            edgeContextMenu.edgeId,
+                                                            !hidden,
+                                                        );
+                                                        setEdgeContextMenu(null);
+                                                    }}
+                                                >
+                                                    {hidden
+                                                        ? t(
+                                                              "context.edge.showLine",
+                                                          )
+                                                        : t(
+                                                              "context.edge.hideLine",
+                                                          )}
+                                                </button>
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            ) : null}
                         </div>
                         {!hasDesign ? (
                             <div className="erd-canvas-empty-hint">

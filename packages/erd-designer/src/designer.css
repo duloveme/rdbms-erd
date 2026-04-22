@@ -229,17 +229,71 @@
 }
 
 .erd-node-card {
+  position: relative;
   border-radius: var(--erd-radius);
   width: 252px;
   background: var(--erd-surface);
   border: 1px solid var(--erd-border);
   box-shadow: var(--erd-shadow);
-  overflow: hidden;
+  /* 좌측 FK 핸들이 테두리 밖으로 반만 나가도 보이도록(세로 중앙 정렬용 translate) */
+  overflow: visible;
 }
 
 .erd-node-card--selected {
   border-color: var(--erd-primary);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+/* 선택된 관계선에 연결된 테이블(노드 선택과 별개) */
+.erd-node-card--rel-endpoint {
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.45), 0 8px 22px rgba(220, 38, 38, 0.18);
+  border-color: rgba(220, 38, 38, 0.55);
+}
+
+.erd-root--elevate-selected-relationships .react-flow__edge.erd-edge-elevated {
+  z-index: 1200 !important;
+}
+
+.erd-root .react-flow__edge.erd-edge-elevated .react-flow__edge-path {
+  stroke: #dc2626 !important;
+  stroke-width: 3 !important;
+}
+
+.erd-edge-context-menu {
+  min-width: 168px;
+  padding: 4px 0;
+  border-radius: 8px;
+  border: 1px solid var(--erd-border);
+  background: var(--erd-surface);
+  box-shadow: var(--erd-shadow-lg);
+}
+
+.erd-edge-context-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--erd-text);
+  cursor: pointer;
+}
+
+.erd-edge-context-menu__item:hover:not(:disabled) {
+  background: var(--erd-surface-hover);
+}
+
+.erd-edge-context-menu__item--active {
+  background: #eff6ff;
+  color: var(--erd-primary);
+  font-weight: 700;
+}
+
+.erd-edge-context-menu__item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .erd-node-header {
@@ -286,12 +340,31 @@
 }
 
 .erd-node-row {
+  position: relative;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 6px;
   padding: 6px 8px;
   border-bottom: 1px solid var(--erd-row-border);
+}
+
+.erd-node-row-primary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.erd-node-row-pk-icon {
+  display: inline-flex;
+  width: 14px;
+  flex-shrink: 0;
+  justify-content: center;
+  align-items: center;
+  color: inherit;
+  opacity: 0.88;
 }
 
 .erd-node-row--tinted {
@@ -349,6 +422,10 @@
   background: var(--erd-handle-active) !important;
 }
 
+.erd-handle-dot--fk {
+  z-index: 2;
+}
+
 /* dialog */
 .erd-dialog-backdrop {
   position: fixed;
@@ -362,6 +439,7 @@
 }
 
 .erd-dialog {
+  /* 컬럼 설명 열 확대로 인해 다이얼로그 폭 확장 */
   width: min(920px, 100%);
   max-height: min(88vh, 720px);
   overflow: hidden;
@@ -381,6 +459,30 @@
   border-bottom: 1px solid var(--erd-border);
   font-size: 16px;
   font-weight: 600;
+}
+
+.erd-dialog-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erd-dialog-mode-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--erd-border);
+  border-radius: 6px;
+  background: var(--erd-surface);
+  color: var(--erd-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.erd-dialog-mode-btn--active {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: var(--erd-primary);
 }
 
 .erd-dialog-body {
@@ -502,7 +604,13 @@
 .erd-dialog-col-grid--header {
   align-items: end;
   margin-bottom: 8px;
-  padding: 0 2px;
+  /* 본문 행(.erd-dialog-column-row)의 좌우 패딩(3px)과 기준선 통일 */
+  padding: 0 3px;
+  column-gap: 3px;
+}
+
+.erd-dialog-col-grid--header--tight {
+  margin-bottom: 4px;
 }
 
 .erd-dialog-col-head-text {
@@ -512,6 +620,19 @@
   line-height: 1.2;
   padding-bottom: 2px;
   min-width: 0;
+}
+
+.erd-dialog-col-head-name {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.erd-dialog-col-head-icon-slot {
+  width: 14px;
+  height: 14px;
 }
 
 .erd-dialog-col-head-tight {
@@ -531,11 +652,120 @@
 }
 
 .erd-dialog-col-grid--logical {
-  grid-template-columns: minmax(0, 1fr) minmax(124px, 9.5rem) 30px 30px 84px 32px 28px 30px;
+  grid-template-columns: minmax(0, 1fr) 132px 26px 26px 68px 22px 22px 240px;
 }
 
 .erd-dialog-col-grid--physical {
-  grid-template-columns: minmax(0, 1fr) minmax(118px, 9rem) minmax(64px, 0.55fr) 30px 30px 84px 32px 28px 30px;
+  grid-template-columns: minmax(0, 1fr) 124px 86px 26px 26px 68px 22px 22px 240px;
+}
+
+/* 테이블 편집: 컬럼 목록 — 행 간 여백 없이 구분선만 */
+.erd-dialog-column-list {
+  border: 1px solid var(--erd-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--erd-surface-muted);
+}
+
+.erd-dialog-column-row {
+  padding: 0 3px;
+  border-top: 1px solid var(--erd-border);
+}
+
+.erd-dialog-column-row:first-child {
+  border-top: none;
+}
+
+.erd-dialog-column-row .erd-dialog-col-grid {
+  column-gap: 3px;
+  row-gap: 0;
+  align-items: center;
+}
+
+.erd-dialog-column-row label {
+  margin: 0;
+  line-height: 1;
+}
+
+.erd-dialog-column-row .erd-input,
+.erd-dialog-column-row .erd-select {
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.15;
+  min-height: 20px;
+  box-sizing: border-box;
+  border-radius: 5px;
+}
+
+.erd-dialog-column-key-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+  color: var(--erd-text-muted);
+  opacity: 0.95;
+  line-height: 1;
+}
+
+.erd-dialog-column-key-icon > svg {
+  display: block;
+  margin: 0 auto;
+}
+
+.erd-dialog-column-icon--empty {
+  visibility: hidden;
+}
+
+.erd-dialog-column-name-cell {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.erd-dialog-column-row .erd-input:focus,
+.erd-dialog-column-row .erd-select:focus {
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+}
+
+/* 컬럼 행: 이동/삭제 등 — 툴바 버튼 대신 작은 아이콘 버튼(색상 제거와 동일 계열) */
+.erd-dialog-column-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.erd-dialog-icon-btn--row {
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 5px;
+}
+
+.erd-dialog-icon-btn--danger {
+  color: var(--erd-danger);
+}
+
+.erd-dialog-icon-btn--danger:hover:not(:disabled) {
+  color: var(--erd-danger);
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.erd-dialog-column-color {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--erd-border);
+  border-radius: 5px;
+  padding: 0;
+  flex-shrink: 0;
 }
 
 @media (max-width: 540px) {

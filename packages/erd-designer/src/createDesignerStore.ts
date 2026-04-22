@@ -44,8 +44,10 @@ export interface DesignerState {
   setTableMeta: (tableId: string, meta: { logicalName?: string; physicalName?: string; schemaName?: string | null; color?: string | null }) => void;
   /** 컬럼 배열 전체 교체(순서·추가·삭제). 해당 테이블을 참조하던 관계 중 사라진 컬럼은 제거된다. */
   setTableColumns: (tableId: string, columns: ColumnModel[]) => void;
-  /** 전역 선 표시를 다시 켤 때: FK 컬럼 중 `showFkRelationLine === false`인 항목을 모두 표시로 되돌린다. */
-  revealAllFkRelationLinesInDoc: () => void;
+  /** 캔버스에서 해당 관계선 숨김(`canvasLineHidden`). 표시만 바꾸는 툴과는 별개로 모델에 반영된다. */
+  setRelationshipCanvasLineHidden: (relationshipId: string, hidden: boolean) => void;
+  /** 관계 cardinality(1:1 / 1:N) 변경 */
+  setRelationshipCardinality: (relationshipId: string, cardinality: "1:1" | "1:N") => void;
 }
 
 export function createDesignerStore(
@@ -212,15 +214,18 @@ export function createDesignerStore(
               targetCol.physicalType = sourceCol.physicalType;
             }
           }),
-        revealAllFkRelationLinesInDoc: () =>
+        setRelationshipCanvasLineHidden: (relationshipId, hidden) =>
           set((state) => {
-            for (const table of state.doc.model.tables) {
-              for (const col of table.columns) {
-                if (col.isForeignKey && col.showFkRelationLine === false) {
-                  delete col.showFkRelationLine;
-                }
-              }
-            }
+            const rel = state.doc.model.relationships.find((r) => r.id === relationshipId);
+            if (!rel) return;
+            if (hidden) rel.canvasLineHidden = true;
+            else delete rel.canvasLineHidden;
+          }),
+        setRelationshipCardinality: (relationshipId, cardinality) =>
+          set((state) => {
+            const rel = state.doc.model.relationships.find((r) => r.id === relationshipId);
+            if (!rel) return;
+            rel.cardinality = cardinality;
           })
       })),
       {

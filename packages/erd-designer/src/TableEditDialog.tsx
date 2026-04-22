@@ -16,9 +16,9 @@ import {
     ChevronDown,
     ChevronUp,
     Eraser,
+    KeyRound,
     Link2,
     Trash2,
-    Unlink,
     X,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
@@ -126,6 +126,8 @@ export function TableEditDialog({
 }: TableEditDialogProps) {
     const { t } = useErdTranslator({ locale, translations, t: tProp });
     const [draft, setDraft] = useState<TableModel | null>(null);
+    const [dialogDisplayMode, setDialogDisplayMode] =
+        useState<CanvasDisplayMode>(displayMode);
 
     useEffect(() => {
         if (open && table) {
@@ -139,12 +141,30 @@ export function TableEditDialog({
         }
     }, [coreOptions, open, table, dialect]);
 
+    useEffect(() => {
+        if (!open) return;
+        setDialogDisplayMode(displayMode);
+    }, [displayMode, open]);
+
+    useEffect(() => {
+        if (!open) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            onClose();
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [open, onClose]);
+
     const title = useMemo(() => {
         if (!draft) return t("dialog.tableEdit.fallbackTitle");
         const name =
-            displayMode === "logical" ? draft.logicalName : draft.physicalName;
+            dialogDisplayMode === "logical"
+                ? draft.logicalName
+                : draft.physicalName;
         return t("dialog.tableEdit.titleWithName", { name });
-    }, [displayMode, draft, t]);
+    }, [dialogDisplayMode, draft, t]);
 
     if (!open || !table || !draft) return null;
 
@@ -188,13 +208,14 @@ export function TableEditDialog({
     };
 
     const nameCaption = t("dialog.tableName");
+    const descriptionCaption = t("dialog.tableDescription");
     const getColumnName = (index: number) =>
-        displayMode === "logical"
+        dialogDisplayMode === "logical"
             ? draft.columns[index].logicalName
             : draft.columns[index].physicalName;
 
     const setColumnName = (index: number, value: string) => {
-        if (displayMode === "logical") {
+        if (dialogDisplayMode === "logical") {
             const col = draft.columns[index];
             const patch: Partial<ColumnModel> = { logicalName: value };
             if (col.physicalName === col.logicalName) {
@@ -207,7 +228,7 @@ export function TableEditDialog({
     };
 
     const gridClass =
-        displayMode === "physical"
+        dialogDisplayMode === "physical"
             ? "erd-dialog-col-grid erd-dialog-col-grid--physical"
             : "erd-dialog-col-grid erd-dialog-col-grid--logical";
     const supportsSchema = dialectSupportsSchema(dialect, coreOptions);
@@ -226,56 +247,130 @@ export function TableEditDialog({
             >
                 <div className="erd-dialog-header">
                     <span id="erd-table-dialog-title">{title}</span>
-                    <button
-                        type="button"
-                        className="erd-node-header-btn"
-                        aria-label={t("dialog.close")}
-                        onClick={onClose}
-                    >
-                        <X size={18} />
-                    </button>
+                    <div className="erd-dialog-header-actions">
+                        <button
+                            type="button"
+                            className={`erd-dialog-mode-btn${dialogDisplayMode === "logical" ? " erd-dialog-mode-btn--active" : ""}`}
+                            onClick={() => setDialogDisplayMode("logical")}
+                        >
+                            {t("toolbar.mode.logical")}
+                        </button>
+                        <button
+                            type="button"
+                            className={`erd-dialog-mode-btn${dialogDisplayMode === "physical" ? " erd-dialog-mode-btn--active" : ""}`}
+                            onClick={() => setDialogDisplayMode("physical")}
+                        >
+                            {t("toolbar.mode.physical")}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-node-header-btn"
+                            aria-label={t("dialog.close")}
+                            onClick={onClose}
+                        >
+                            <X size={18} />
+                        </button>
+                    </div>
                 </div>
                 <div className="erd-dialog-body">
                     <div className="erd-field">
-                        <label htmlFor="erd-t-name">{nameCaption}</label>
                         <div
                             style={{
                                 display: "grid",
-                                gridTemplateColumns: "1fr auto auto",
+                                gridTemplateColumns:
+                                    dialogDisplayMode === "physical" &&
+                                    supportsSchema
+                                        ? "minmax(120px, 0.4fr) minmax(0, 1fr) minmax(0, 2fr) auto auto"
+                                        : "minmax(0, 1fr) minmax(0, 2fr) auto auto",
                                 gap: 8,
-                                alignItems: "center",
+                                alignItems: "end",
                             }}
                         >
-                            <input
-                                id="erd-t-name"
-                                className="erd-input"
-                                value={
-                                    displayMode === "logical"
-                                        ? draft.logicalName
-                                        : draft.physicalName
-                                }
-                                onChange={(e) => {
-                                    const nextName = e.target.value;
-                                    if (displayMode === "logical") {
-                                        const next = {
-                                            ...draft,
-                                            logicalName: nextName,
-                                        };
-                                        if (
-                                            draft.physicalName ===
-                                            draft.logicalName
-                                        ) {
-                                            next.physicalName = nextName;
+                            {dialogDisplayMode === "physical" &&
+                            supportsSchema ? (
+                                <div
+                                    style={{
+                                        display: "grid",
+                                        gap: 4,
+                                    }}
+                                >
+                                    <label htmlFor="erd-t-schema">
+                                        {t("dialog.tableSchema")}
+                                    </label>
+                                    <input
+                                        id="erd-t-schema"
+                                        className="erd-input"
+                                        value={draft.schemaName ?? ""}
+                                        onChange={(e) =>
+                                            setDraft({
+                                                ...draft,
+                                                schemaName: e.target.value,
+                                            })
                                         }
-                                        setDraft(next);
-                                    } else {
+                                        placeholder={t("dialog.tableSchema")}
+                                    />
+                                </div>
+                            ) : null}
+                            <div
+                                style={{
+                                    display: "grid",
+                                    gap: 4,
+                                }}
+                            >
+                                <label htmlFor="erd-t-name">{nameCaption}</label>
+                                <input
+                                    id="erd-t-name"
+                                    className="erd-input"
+                                    value={
+                                        dialogDisplayMode === "logical"
+                                            ? draft.logicalName
+                                            : draft.physicalName
+                                    }
+                                    onChange={(e) => {
+                                        const nextName = e.target.value;
+                                        if (dialogDisplayMode === "logical") {
+                                            const next = {
+                                                ...draft,
+                                                logicalName: nextName,
+                                            };
+                                            if (
+                                                draft.physicalName ===
+                                                draft.logicalName
+                                            ) {
+                                                next.physicalName = nextName;
+                                            }
+                                            setDraft(next);
+                                        } else {
+                                            setDraft({
+                                                ...draft,
+                                                physicalName: nextName,
+                                            });
+                                        }
+                                    }}
+                                />
+                            </div>
+                            <div
+                                style={{
+                                    display: "grid",
+                                    gap: 4,
+                                }}
+                            >
+                                <label htmlFor="erd-t-description">
+                                    {descriptionCaption}
+                                </label>
+                                <input
+                                    id="erd-t-description"
+                                    className="erd-input"
+                                    value={draft.description ?? ""}
+                                    onChange={(e) =>
                                         setDraft({
                                             ...draft,
-                                            physicalName: nextName,
-                                        });
+                                            description: e.target.value,
+                                        })
                                     }
-                                }}
-                            />
+                                    placeholder={descriptionCaption}
+                                />
+                            </div>
                             <input
                                 type="color"
                                 aria-label={t("dialog.tableColor")}
@@ -307,33 +402,22 @@ export function TableEditDialog({
                             </button>
                         </div>
                     </div>
-                    {displayMode === "physical" && supportsSchema ? (
-                        <div className="erd-field">
-                            <label htmlFor="erd-t-schema">
-                                {t("dialog.tableSchema")}
-                            </label>
-                            <input
-                                id="erd-t-schema"
-                                className="erd-input"
-                                value={draft.schemaName ?? ""}
-                                onChange={(e) =>
-                                    setDraft({
-                                        ...draft,
-                                        schemaName: e.target.value,
-                                    })
-                                }
-                                placeholder="public"
+                    <div
+                        className={`${gridClass} erd-dialog-col-grid--header erd-dialog-col-grid--header--tight`}
+                    >
+                        <div className="erd-dialog-col-head-name">
+                            <span
+                                className="erd-dialog-col-head-icon-slot"
+                                aria-hidden
                             />
+                            <span className="erd-dialog-col-head-text">
+                                {t("dialog.column.name")}
+                            </span>
                         </div>
-                    ) : null}
-                    <div className={`${gridClass} erd-dialog-col-grid--header`}>
-                        <span className="erd-dialog-col-head-text">
-                            {t("dialog.column.name")}
-                        </span>
                         <span className="erd-dialog-col-head-text">
                             {t("dialog.column.type")}
                         </span>
-                        {displayMode === "physical" ? (
+                        {dialogDisplayMode === "physical" ? (
                             <span className="erd-dialog-col-head-text">
                                 {t("dialog.column.default")}
                             </span>
@@ -362,43 +446,49 @@ export function TableEditDialog({
                             className="erd-dialog-col-head-spacer"
                             aria-hidden="true"
                         />
-                        <span
-                            className="erd-dialog-col-head-spacer"
-                            aria-hidden="true"
-                        />
+                        <span className="erd-dialog-col-head-text">
+                            {t("dialog.column.description")}
+                        </span>
                     </div>
-                    {draft.columns.map((col, index) => (
-                        <div
-                            key={col.id}
-                            style={{
-                                border: "1px solid var(--erd-border)",
-                                borderRadius:
-                                    index === 0
-                                        ? "10px 10px 0 0"
-                                        : index === draft.columns.length - 1
-                                          ? "0 0 10px 10px"
-                                          : 0,
-                                padding: "6px 8px",
-                                marginBottom: 0,
-                                marginTop: index === 0 ? 0 : -1,
-                                background: "#fafafa",
-                            }}
-                        >
-                            <div className={gridClass}>
-                                <input
-                                    className="erd-input"
-                                    value={getColumnName(index)}
-                                    onChange={(e) =>
-                                        setColumnName(index, e.target.value)
-                                    }
-                                    style={{
-                                        fontStyle: col.isForeignKey
-                                            ? "italic"
-                                            : "normal",
-                                        minWidth: 0,
-                                    }}
-                                />
-                                {displayMode === "logical" ? (
+                    <div className="erd-dialog-column-list">
+                        {draft.columns.map((col, index) => (
+                            <div key={col.id} className="erd-dialog-column-row">
+                                <div className={gridClass}>
+                                    <div className="erd-dialog-column-name-cell">
+                                        <span
+                                            className={`erd-dialog-column-key-icon${col.isPrimaryKey || col.isForeignKey ? "" : " erd-dialog-column-icon--empty"}`}
+                                            aria-hidden
+                                        >
+                                            {col.isPrimaryKey ? (
+                                                <KeyRound
+                                                    size={11}
+                                                    strokeWidth={2.2}
+                                                />
+                                            ) : col.isForeignKey ? (
+                                                <Link2
+                                                    size={11}
+                                                    strokeWidth={2.2}
+                                                />
+                                            ) : null}
+                                        </span>
+                                        <input
+                                            className="erd-input"
+                                            value={getColumnName(index)}
+                                            onChange={(e) =>
+                                                setColumnName(
+                                                    index,
+                                                    e.target.value,
+                                                )
+                                            }
+                                            style={{
+                                                fontStyle: col.isForeignKey
+                                                    ? "italic"
+                                                    : "normal",
+                                                minWidth: 0,
+                                            }}
+                                        />
+                                    </div>
+                                {dialogDisplayMode === "logical" ? (
                                     <select
                                         className="erd-select"
                                         value={col.logicalType}
@@ -435,7 +525,7 @@ export function TableEditDialog({
                                         style={{ minWidth: 0 }}
                                     />
                                 )}
-                                {displayMode === "physical" ? (
+                                {dialogDisplayMode === "physical" ? (
                                     <input
                                         className="erd-input"
                                         value={col.defaultValue ?? ""}
@@ -484,91 +574,40 @@ export function TableEditDialog({
                                         }
                                     />
                                 </label>
-                                <div
-                                    style={{
-                                        display: "flex",
-                                        gap: 2,
-                                        justifyContent: "center",
-                                    }}
-                                >
+                                <div className="erd-dialog-column-actions">
                                     <button
                                         type="button"
-                                        className="erd-toolbar-btn"
-                                        style={{ minWidth: 28, padding: 0 }}
+                                        className="erd-dialog-icon-btn erd-dialog-icon-btn--row"
                                         aria-label={t("dialog.column.moveUp")}
                                         disabled={index === 0}
                                         onClick={() => moveColumn(index, -1)}
                                     >
-                                        <ChevronUp size={15} />
+                                        <ChevronUp size={12} />
                                     </button>
                                     <button
                                         type="button"
-                                        className="erd-toolbar-btn"
-                                        style={{ minWidth: 28, padding: 0 }}
+                                        className="erd-dialog-icon-btn erd-dialog-icon-btn--row"
                                         aria-label={t("dialog.column.moveDown")}
                                         disabled={
                                             index === draft.columns.length - 1
                                         }
                                         onClick={() => moveColumn(index, 1)}
                                     >
-                                        <ChevronDown size={15} />
+                                        <ChevronDown size={12} />
                                     </button>
                                     <button
                                         type="button"
-                                        className="erd-toolbar-btn"
-                                        style={{
-                                            minWidth: 28,
-                                            padding: 0,
-                                            color: "var(--erd-danger)",
-                                        }}
+                                        className="erd-dialog-icon-btn erd-dialog-icon-btn--row erd-dialog-icon-btn--danger"
                                         aria-label={t("dialog.column.delete")}
                                         disabled={draft.columns.length <= 1}
                                         onClick={() => removeColumn(index)}
                                     >
-                                        <Trash2 size={15} />
+                                        <Trash2 size={12} />
                                     </button>
                                 </div>
-                                <button
-                                    type="button"
-                                    className={`erd-dialog-icon-btn ${col.isForeignKey && col.showFkRelationLine !== false ? "erd-dialog-icon-btn--on" : ""}`}
-                                    style={{
-                                        visibility: col.isForeignKey
-                                            ? "visible"
-                                            : "hidden",
-                                    }}
-                                    disabled={!col.isForeignKey}
-                                    title={
-                                        col.showFkRelationLine !== false
-                                            ? t("dialog.column.fkLineOn")
-                                            : t("dialog.column.fkLineOff")
-                                    }
-                                    aria-label={
-                                        col.showFkRelationLine !== false
-                                            ? t("dialog.column.fkLineOn")
-                                            : t("dialog.column.fkLineOff")
-                                    }
-                                    aria-pressed={
-                                        col.isForeignKey
-                                            ? col.showFkRelationLine !== false
-                                            : undefined
-                                    }
-                                    onClick={() => {
-                                        if (!col.isForeignKey) return;
-                                        updateColumn(index, {
-                                            showFkRelationLine: !(
-                                                col.showFkRelationLine !== false
-                                            ),
-                                        });
-                                    }}
-                                >
-                                    {col.showFkRelationLine !== false ? (
-                                        <Link2 size={16} />
-                                    ) : (
-                                        <Unlink size={16} />
-                                    )}
-                                </button>
                                 <input
                                     type="color"
+                                    className="erd-dialog-column-color"
                                     aria-label={t("dialog.column.color")}
                                     value={col.color ?? "#f1f5f9"}
                                     onChange={(e) =>
@@ -576,18 +615,10 @@ export function TableEditDialog({
                                             color: e.target.value,
                                         })
                                     }
-                                    style={{
-                                        width: 28,
-                                        height: 28,
-                                        border: "1px solid var(--erd-border)",
-                                        borderRadius: 6,
-                                        padding: 0,
-                                        flexShrink: 0,
-                                    }}
                                 />
                                 <button
                                     type="button"
-                                    className="erd-dialog-icon-btn"
+                                    className="erd-dialog-icon-btn erd-dialog-icon-btn--row"
                                     aria-label={t("dialog.column.color.clear")}
                                     title={t("dialog.column.color.clear")}
                                     onClick={() =>
@@ -596,11 +627,23 @@ export function TableEditDialog({
                                         })
                                     }
                                 >
-                                    <Eraser size={16} />
+                                    <Eraser size={12} />
                                 </button>
+                                <input
+                                    className="erd-input"
+                                    value={col.description ?? ""}
+                                    onChange={(e) =>
+                                        updateColumn(index, {
+                                            description: e.target.value,
+                                        })
+                                    }
+                                    placeholder={t("dialog.column.description")}
+                                    style={{ minWidth: 0 }}
+                                />
                             </div>
                         </div>
                     ))}
+                    </div>
                 </div>
                 <div className="erd-dialog-footer">
                     <button

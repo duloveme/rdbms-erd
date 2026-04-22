@@ -140,8 +140,26 @@ describe("createDesignerStore + zundo", () => {
     expect(fkTable.columns.some((c) => c.id === "fkcol")).toBe(false);
   });
 
-  it("revealAllFkRelationLinesInDoc clears showFkRelationLine false on FK columns", () => {
+  it("setRelationshipCanvasLineHidden toggles relationship.canvasLineHidden", () => {
     const useStore = createDesignerStore({ initialDialect: "postgres" });
+    useStore.getState().addTable(
+      {
+        id: "pk",
+        logicalName: "P",
+        physicalName: "TP",
+        columns: [
+          createColumn("postgres", {
+            id: "pkc",
+            logicalName: "ID",
+            logicalType: "NUMBER",
+            nullable: false,
+            isPrimaryKey: true
+          })
+        ]
+      },
+      0,
+      0
+    );
     useStore.getState().addTable(
       {
         id: "fk",
@@ -153,16 +171,24 @@ describe("createDesignerStore + zundo", () => {
             logicalName: "ID",
             logicalType: "NUMBER",
             isForeignKey: true,
-            showFkRelationLine: false
+            referencesPrimaryColumnId: "pkc"
           })
         ]
       },
-      0,
+      100,
       0
     );
-    useStore.getState().revealAllFkRelationLinesInDoc();
-    const col = useStore.getState().doc.model.tables[0].columns[0];
-    expect(col.showFkRelationLine).not.toBe(false);
+    useStore.getState().addRelationship({
+      id: "r1",
+      sourceTableId: "pk",
+      targetTableId: "fk",
+      sourceColumnId: "pkc",
+      targetColumnId: "fkcol"
+    });
+    useStore.getState().setRelationshipCanvasLineHidden("r1", true);
+    expect(useStore.getState().doc.model.relationships[0].canvasLineHidden).toBe(true);
+    useStore.getState().setRelationshipCanvasLineHidden("r1", false);
+    expect(useStore.getState().doc.model.relationships[0].canvasLineHidden).toBeUndefined();
   });
 
   it("removeRelationship deletes FK column by column metadata", () => {

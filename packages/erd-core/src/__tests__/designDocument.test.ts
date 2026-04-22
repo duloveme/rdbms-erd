@@ -6,7 +6,7 @@ import {
   parseDesign,
   roundTripDesign,
   serializeDesign,
-  validateDesignDocument
+  validateDesignDocument,
 } from "../index";
 
 describe("DesignDocument", () => {
@@ -38,7 +38,7 @@ describe("DesignDocument", () => {
     expect(createEmptyDesign().model.dialect).toBe("mssql");
   });
 
-  it("isRelationshipLineRenderable respects FK column flag and global toggle", () => {
+  it("isRelationshipLineRenderable respects relationship canvasLineHidden and reveal toggle", () => {
     const doc = createEmptyDesign("postgres");
     doc.model.tables.push(
       {
@@ -56,8 +56,7 @@ describe("DesignDocument", () => {
             id: "bfk",
             logicalName: "aid",
             logicalType: "NUMBER",
-            isForeignKey: true,
-            showFkRelationLine: false
+            isForeignKey: true
           })
         ]
       }
@@ -67,12 +66,64 @@ describe("DesignDocument", () => {
       sourceTableId: "a",
       targetTableId: "b",
       sourceColumnId: "apk",
-      targetColumnId: "bfk"
+      targetColumnId: "bfk",
+      canvasLineHidden: true as const
     };
     doc.model.relationships.push(rel);
-    expect(isRelationshipLineRenderable(rel, doc.model, false)).toBe(false);
-    expect(isRelationshipLineRenderable(rel, doc.model, true)).toBe(false);
-    doc.model.tables[1].columns[0] = { ...doc.model.tables[1].columns[0], showFkRelationLine: true };
-    expect(isRelationshipLineRenderable(rel, doc.model, true)).toBe(true);
+    expect(isRelationshipLineRenderable(rel, false)).toBe(false);
+    expect(isRelationshipLineRenderable(rel, true)).toBe(true);
+    delete rel.canvasLineHidden;
+    expect(isRelationshipLineRenderable(rel, false)).toBe(true);
+  });
+
+  it("migrates legacy column showFkRelationLine false to relationship canvasLineHidden", () => {
+    const doc = createEmptyDesign("postgres");
+    doc.model.tables.push(
+      {
+        id: "a",
+        logicalName: "A",
+        physicalName: "TA",
+        columns: [
+          createColumn("postgres", {
+            id: "apk",
+            logicalName: "id",
+            logicalType: "NUMBER",
+            nullable: false,
+            isPrimaryKey: true,
+          }),
+        ],
+      },
+      {
+        id: "b",
+        logicalName: "B",
+        physicalName: "TB",
+        columns: [
+          createColumn("postgres", {
+            id: "bfk",
+            logicalName: "aid",
+            logicalType: "NUMBER",
+            isForeignKey: true,
+          }),
+        ],
+      },
+    );
+    doc.model.relationships.push({
+      id: "r1",
+      sourceTableId: "a",
+      targetTableId: "b",
+      sourceColumnId: "apk",
+      targetColumnId: "bfk",
+    });
+    const raw = JSON.parse(serializeDesign(doc)) as Record<string, unknown>;
+    const tables = (raw.model as { tables: { id: string; columns: Record<string, unknown>[] }[] }).tables;
+    const bTable = tables.find((t) => t.id === "b");
+    const fkCol = bTable?.columns.find((c) => c.id === "bfk");
+    if (fkCol) fkCol.showFkRelationLine = false;
+    const out = validateDesignDocument(raw);
+    expect(out.model.relationships.find((r) => r.id === "r1")?.canvasLineHidden).toBe(true);
+    const migratedFk = out.model.tables.find((t) => t.id === "b")?.columns.find((c) => c.id === "bfk");
+    expect(
+      migratedFk && "showFkRelationLine" in migratedFk ? (migratedFk as { showFkRelationLine?: boolean }).showFkRelationLine : undefined,
+    ).toBeUndefined();
   });
 });
