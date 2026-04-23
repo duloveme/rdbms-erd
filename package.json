@@ -9,7 +9,16 @@
         "dev": "npm run dev -w apps/playground",
         "build": "npm run build -w apps/playground",
         "lint": "npm run lint -w apps/playground",
-        "test": "vitest run"
+        "test": "vitest run",
+        "release:check": "npm test",
+        "release:version:patch": "npm version patch -w packages/erd-core -w packages/erd-designer",
+        "release:version:minor": "npm version minor -w packages/erd-core -w packages/erd-designer",
+        "release:version:major": "npm version major -w packages/erd-core -w packages/erd-designer",
+        "release:sync-core-dep": "node -e \"const fs=require('fs');const corePath='packages/erd-core/package.json';const desPath='packages/erd-designer/package.json';const core=JSON.parse(fs.readFileSync(corePath,'utf8'));const des=JSON.parse(fs.readFileSync(desPath,'utf8'));des.dependencies['@rdbms-erd/core']=core.version;fs.writeFileSync(desPath,JSON.stringify(des,null,4)+String.fromCharCode(10));\"",
+        "release:publish": "npm publish -w packages/erd-core --access public && npm publish -w packages/erd-designer --access public",
+        "release:patch": "npm run release:check && npm run release:version:patch && npm run release:sync-core-dep && npm run release:publish",
+        "release:minor": "npm run release:check && npm run release:version:minor && npm run release:sync-core-dep && npm run release:publish",
+        "release:major": "npm run release:check && npm run release:version:major && npm run release:sync-core-dep && npm run release:publish"
     },
     "devDependencies": {
         "typescript": "6.0.3",
