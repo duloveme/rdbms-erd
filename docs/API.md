@@ -47,7 +47,6 @@ Client React component (`"use client"`). `ReactFlowProvider` is already wrapped 
 - `relationshipLinesVisible?: boolean`
 - `defaultRelationshipLinesVisible?: boolean`
 - `onRelationshipLinesVisibleChange?: (visible: boolean) => void`
-- `largeDiagramThreshold?: number` (default `120`)
 - `locale?: string`
 - `translations?: Partial<Record<I18nKey, string>>`
 - `t?: (key: I18nKey, vars?: I18nVars) => string`

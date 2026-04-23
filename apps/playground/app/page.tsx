@@ -845,7 +845,6 @@ export default function Page() {
     const [elevateSelectedRelationships, setElevateSelectedRelationships] =
         useState(true);
     const [tableWidth, setTableWidth] = useState(400);
-    const [largeDiagramThreshold, setLargeDiagramThreshold] = useState(120);
     const handleDesignChange = useCallback((doc: DesignDocument) => {
         setDesign(doc);
     }, []);
@@ -959,30 +958,6 @@ export default function Page() {
                         style={{ width: 88, padding: "4px 8px" }}
                     />
                 </label>
-                <label
-                    style={{
-                        display: "inline-flex",
-                        gap: 8,
-                        alignItems: "center",
-                    }}
-                >
-                    largeDiagramThreshold
-                    <input
-                        type="number"
-                        min={10}
-                        step={10}
-                        value={largeDiagramThreshold}
-                        onChange={(e) =>
-                            setLargeDiagramThreshold(
-                                Number.isFinite(e.target.valueAsNumber) &&
-                                    e.target.valueAsNumber > 0
-                                    ? e.target.valueAsNumber
-                                    : 120,
-                            )
-                        }
-                        style={{ width: 88, padding: "4px 8px" }}
-                    />
-                </label>
                 <button
                     type="button"
                     onClick={() => setDesign(createTestDesign())}
@@ -1024,7 +999,6 @@ export default function Page() {
                         showRightPanel={rightPanelEnabled}
                         locale={locale}
                         tableWidth={tableWidth}
-                        largeDiagramThreshold={largeDiagramThreshold}
                         revealHiddenRelationshipLines={
                             revealHiddenRelationshipLines
                         }

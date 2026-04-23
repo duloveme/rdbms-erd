@@ -16,6 +16,7 @@ import {
     ChevronDown,
     ChevronUp,
     Eraser,
+    GripVertical,
     KeyRound,
     Link2,
     Trash2,
@@ -128,6 +129,9 @@ export function TableEditDialog({
     const [draft, setDraft] = useState<TableModel | null>(null);
     const [dialogDisplayMode, setDialogDisplayMode] =
         useState<CanvasDisplayMode>(displayMode);
+    const [draggingColumnIndex, setDraggingColumnIndex] = useState<
+        number | null
+    >(null);
 
     useEffect(() => {
         if (open && table) {
@@ -186,8 +190,39 @@ export function TableEditDialog({
             if (!d) return d;
             const j = index + dir;
             if (j < 0 || j >= d.columns.length) return d;
+            const target = d.columns[j];
+            const from = d.columns[index];
+            if (!target || !from) return d;
+            // 마지막 빈 컬럼 아래로 이동 금지(빈 컬럼 자체도 이동 금지)
+            if (columnNamesBlank(target) || columnNamesBlank(from)) return d;
             const cols = [...d.columns];
             [cols[index], cols[j]] = [cols[j], cols[index]];
+            return ensureTrailingBlankColumn(
+                { ...d, columns: cols },
+                dialect,
+                coreOptions,
+            );
+        });
+    };
+
+    const moveColumnTo = (fromIndex: number, toIndex: number) => {
+        setDraft((d) => {
+            if (!d) return d;
+            if (fromIndex < 0 || fromIndex >= d.columns.length) return d;
+            const fromCol = d.columns[fromIndex];
+            if (!fromCol || columnNamesBlank(fromCol)) return d;
+            const namedIndexes = d.columns
+                .map((c, i) => ({ c, i }))
+                .filter(({ c }) => !columnNamesBlank(c))
+                .map(({ i }) => i);
+            if (namedIndexes.length === 0) return d;
+            const maxNamedIndex = namedIndexes[namedIndexes.length - 1] ?? 0;
+            const clampedTo = Math.max(0, Math.min(toIndex, maxNamedIndex));
+            if (clampedTo === fromIndex) return d;
+            const cols = [...d.columns];
+            const [moved] = cols.splice(fromIndex, 1);
+            if (!moved) return d;
+            cols.splice(clampedTo, 0, moved);
             return ensureTrailingBlankColumn(
                 { ...d, columns: cols },
                 dialect,
@@ -450,26 +485,85 @@ export function TableEditDialog({
                             {t("dialog.column.description")}
                         </span>
                     </div>
-                    <div className="erd-dialog-column-list">
+                    <div
+                        className="erd-dialog-column-list"
+                        onDragOver={(e) => {
+                            if (draggingColumnIndex == null) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                        }}
+                    >
                         {draft.columns.map((col, index) => (
-                            <div key={col.id} className="erd-dialog-column-row">
+                        (() => {
+                            const columnNameEmpty =
+                                getColumnName(index).trim().length === 0;
+                            const nextColumn = draft.columns[index + 1];
+                            const downBlockedByTrailingBlank =
+                                nextColumn != null &&
+                                columnNamesBlank(nextColumn);
+                            return (
+                            <div
+                                key={col.id}
+                                className="erd-dialog-column-row"
+                                onDragOver={(e) => {
+                                    if (draggingColumnIndex == null) return;
+                                    e.preventDefault();
+                                    e.dataTransfer.dropEffect = "move";
+                                }}
+                                onDrop={(e) => {
+                                    if (draggingColumnIndex == null) return;
+                                    e.preventDefault();
+                                    moveColumnTo(draggingColumnIndex, index);
+                                    setDraggingColumnIndex(null);
+                                }}
+                            >
                                 <div className={gridClass}>
                                     <div className="erd-dialog-column-name-cell">
                                         <span
-                                            className={`erd-dialog-column-key-icon${col.isPrimaryKey || col.isForeignKey ? "" : " erd-dialog-column-icon--empty"}`}
+                                            className="erd-dialog-column-key-icon"
                                             aria-hidden
+                                            draggable={!columnNameEmpty}
+                                            title={t("dialog.column.moveUp")}
+                                            onDragStart={(e) => {
+                                                if (columnNameEmpty) return;
+                                                e.dataTransfer.effectAllowed =
+                                                    "move";
+                                                e.dataTransfer.setData(
+                                                    "text/plain",
+                                                    col.id,
+                                                );
+                                                setDraggingColumnIndex(index);
+                                            }}
+                                            onDragEnd={() =>
+                                                setDraggingColumnIndex(null)
+                                            }
                                         >
-                                            {col.isPrimaryKey ? (
-                                                <KeyRound
-                                                    size={11}
-                                                    strokeWidth={2.2}
+                                            <span className="erd-dialog-column-drag-grip">
+                                                <GripVertical
+                                                    size={10}
+                                                    strokeWidth={2}
                                                 />
-                                            ) : col.isForeignKey ? (
-                                                <Link2
-                                                    size={11}
-                                                    strokeWidth={2.2}
-                                                />
-                                            ) : null}
+                                            </span>
+                                            <span
+                                                className={
+                                                    col.isPrimaryKey ||
+                                                    col.isForeignKey
+                                                        ? ""
+                                                        : "erd-dialog-column-icon--empty"
+                                                }
+                                            >
+                                                {col.isPrimaryKey ? (
+                                                    <KeyRound
+                                                        size={11}
+                                                        strokeWidth={2.2}
+                                                    />
+                                                ) : col.isForeignKey ? (
+                                                    <Link2
+                                                        size={11}
+                                                        strokeWidth={2.2}
+                                                    />
+                                                ) : null}
+                                            </span>
                                         </span>
                                         <input
                                             className="erd-input"
@@ -579,8 +673,11 @@ export function TableEditDialog({
                                         type="button"
                                         className="erd-dialog-icon-btn erd-dialog-icon-btn--row"
                                         aria-label={t("dialog.column.moveUp")}
-                                        disabled={index === 0}
-                                        onClick={() => moveColumn(index, -1)}
+                                        disabled={index === 0 || columnNameEmpty}
+                                        onClick={() => {
+                                            if (columnNameEmpty) return;
+                                            moveColumn(index, -1);
+                                        }}
                                     >
                                         <ChevronUp size={12} />
                                     </button>
@@ -589,9 +686,16 @@ export function TableEditDialog({
                                         className="erd-dialog-icon-btn erd-dialog-icon-btn--row"
                                         aria-label={t("dialog.column.moveDown")}
                                         disabled={
-                                            index === draft.columns.length - 1
+                                            index === draft.columns.length - 1 ||
+                                            columnNameEmpty ||
+                                            downBlockedByTrailingBlank
                                         }
-                                        onClick={() => moveColumn(index, 1)}
+                                        onClick={() => {
+                                            if (columnNameEmpty) return;
+                                            if (downBlockedByTrailingBlank)
+                                                return;
+                                            moveColumn(index, 1);
+                                        }}
                                     >
                                         <ChevronDown size={12} />
                                     </button>
@@ -642,6 +746,8 @@ export function TableEditDialog({
                                 />
                             </div>
                         </div>
+                            );
+                        })()
                     ))}
                     </div>
                 </div>

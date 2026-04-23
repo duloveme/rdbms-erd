@@ -7,6 +7,7 @@ export const koBundle: Record<I18nKey, string> = {
   "toolbar.mode.physical": "물리",
   "toolbar.cardinality.oneToOne": "1:1",
   "toolbar.cardinality.oneToMany": "1:N",
+  "toolbar.relationshipMode": "릴레이션 모드",
   "toolbar.theme.toLight": "라이트 모드로 전환",
   "toolbar.theme.toDark": "다크 모드로 전환",
   "toolbar.lines.revealHidden": "숨긴 관계선까지 표시",

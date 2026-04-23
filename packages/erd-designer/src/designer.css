@@ -316,6 +316,9 @@
   align-items: center;
   gap: 6px;
   padding: 8px 10px;
+  border-top-left-radius: calc(var(--erd-radius) - 1px);
+  border-top-right-radius: calc(var(--erd-radius) - 1px);
+  overflow: hidden;
   border-bottom: 1px solid var(--erd-border);
   font-weight: 600;
   font-size: 14px;
@@ -439,6 +442,11 @@
 
 .erd-handle-dot--fk {
   z-index: 2;
+}
+
+.erd-handle-dot--hidden {
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* dialog */
@@ -713,19 +721,33 @@
 }
 
 .erd-dialog-column-key-icon {
-  display: inline-flex;
-  width: 14px;
+  display: inline-grid;
+  grid-template-columns: 8px 12px;
+  column-gap: 1px;
+  width: 22px;
   height: 14px;
   align-items: center;
-  justify-content: center;
+  justify-content: start;
   color: var(--erd-text-muted);
   opacity: 0.95;
   line-height: 1;
+  cursor: grab;
+}
+
+.erd-dialog-column-key-icon:active {
+  cursor: grabbing;
 }
 
 .erd-dialog-column-key-icon > svg {
   display: block;
   margin: 0 auto;
+}
+
+.erd-dialog-column-drag-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.75;
 }
 
 .erd-dialog-column-icon--empty {
@@ -734,7 +756,7 @@
 
 .erd-dialog-column-name-cell {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
   gap: 2px;
   min-width: 0;

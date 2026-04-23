@@ -7,6 +7,7 @@ export const enBundle: Record<I18nKey, string> = {
   "toolbar.mode.physical": "Physical",
   "toolbar.cardinality.oneToOne": "1:1",
   "toolbar.cardinality.oneToMany": "1:N",
+  "toolbar.relationshipMode": "Relationship mode",
   "toolbar.theme.toLight": "Switch to light mode",
   "toolbar.theme.toDark": "Switch to dark mode",
   "toolbar.lines.revealHidden": "Show hidden relationship lines too",

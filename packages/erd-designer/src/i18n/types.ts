@@ -6,6 +6,7 @@ export const I18N_KEYS = [
   "toolbar.mode.physical",
   "toolbar.cardinality.oneToOne",
   "toolbar.cardinality.oneToMany",
+  "toolbar.relationshipMode",
   "toolbar.theme.toLight",
   "toolbar.theme.toDark",
   "toolbar.lines.revealHidden",

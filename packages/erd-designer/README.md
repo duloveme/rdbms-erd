@@ -10,6 +10,7 @@ npm i @rdbms-erd/designer @rdbms-erd/core
 ```
 
 Peer dependencies:
+
 - `react`
 - `react-dom`
 
@@ -23,12 +24,14 @@ import { ERDDesigner } from "@rdbms-erd/designer";
 import { useState } from "react";
 
 export default function Page() {
-  const [doc, setDoc] = useState<DesignDocument>(() => createEmptyDesign("postgres"));
-  return (
-    <div style={{ height: "100vh", width: "100%" }}>
-      <ERDDesigner value={doc} onChange={setDoc} />
-    </div>
-  );
+    const [doc, setDoc] = useState<DesignDocument>(() =>
+        createEmptyDesign("postgres"),
+    );
+    return (
+        <div style={{ height: "100vh", width: "100%" }}>
+            <ERDDesigner value={doc} onChange={setDoc} />
+        </div>
+    );
 }
 ```
 
@@ -40,41 +43,40 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
 ## Main Props (`ERDDesignerProps`)
 
 - Document:
-  - `value?: DesignDocument`
-  - `onChange?: (doc: DesignDocument) => void`
-  - `onSaveJson?: (doc: DesignDocument) => void`
+    - `value?: DesignDocument`
+    - `onChange?: (doc: DesignDocument) => void`
+    - `onSaveJson?: (doc: DesignDocument) => void`
 - Workflow callbacks:
-  - `onRequestNewEr?: (currentDialect: RdbmsDialect) => void`
-  - `onRequestCreateTable?: (payload: CreateTableRequestPayload) => void`
+    - `onRequestNewEr?: (currentDialect: RdbmsDialect) => void`
+    - `onRequestCreateTable?: (payload: CreateTableRequestPayload) => void`
 - View/control:
-  - `locale?: string`
-  - `translations?: Partial<Record<I18nKey, string>>`
-  - `t?: (key: I18nKey, vars?: I18nVars) => string`
-  - `showRightPanel?: boolean`
-  - `tableWidth?: number` (default `400`)
-  - `largeDiagramThreshold?: number` (default `120`)
-  - `revealHiddenRelationshipLines?: boolean`
-  - `defaultRevealHiddenRelationshipLines?: boolean`
-  - `onRevealHiddenRelationshipLinesChange?: (reveal: boolean) => void`
-  - `elevateSelectedRelationships?: boolean` (default `false`)
-  - `themeMode?: "light" | "dark"`
-  - `defaultThemeMode?: "light" | "dark"`
-  - `onThemeModeChange?: (mode: "light" | "dark") => void`
+    - `locale?: string`
+    - `translations?: Partial<Record<I18nKey, string>>`
+    - `t?: (key: I18nKey, vars?: I18nVars) => string`
+    - `showRightPanel?: boolean`
+    - `tableWidth?: number` (default `400`)
+    - `revealHiddenRelationshipLines?: boolean`
+    - `defaultRevealHiddenRelationshipLines?: boolean`
+    - `onRevealHiddenRelationshipLinesChange?: (reveal: boolean) => void`
+    - `elevateSelectedRelationships?: boolean` (default `false`)
+    - `themeMode?: "light" | "dark"`
+    - `defaultThemeMode?: "light" | "dark"`
+    - `onThemeModeChange?: (mode: "light" | "dark") => void`
 - Toolbar extension:
-  - `toolbarSlots?: ToolbarSlots`
-  - `toolbarExtra?: React.ReactNode`
+    - `toolbarSlots?: ToolbarSlots`
+    - `toolbarExtra?: React.ReactNode`
 
 ## DB Extension Props (JSON + optional hook)
 
 - `hostMetas?: DialectMetaJson[]`
-  - override/append dialect metadata by id
-  - affects right-panel DB dropdown and logical-type defaults
+    - override/append dialect metadata by id
+    - affects right-panel DB dropdown and logical-type defaults
 - `hostDdlGenerators?: Record<string, DdlGeneratorHook>`
-  - optional per-dialect DDL function
-  - used by toolbar DDL copy action (`all` / `selected` scope)
+    - optional per-dialect DDL function
+    - used by toolbar DDL copy action (`all` / `selected` scope)
 - `fallbackOnHookError?: boolean` (default `true`)
 - `dbMetaAdapter?: DbMetaAdapter`
-  - advanced/legacy adapter path
+    - advanced/legacy adapter path
 
 ## Example: Custom Dialect in Designer
 
@@ -82,25 +84,25 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
 import { ERDDesigner } from "@rdbms-erd/designer";
 
 const hostMetas = [
-  {
-    id: "acme",
-    label: "AcmeDB",
-    supportsSchema: true,
-    logicalTypes: [
-      { id: "TEXT", defaultPhysicalType: "STRING(255)" },
-      { id: "NUMBER", defaultPhysicalType: "INT64" }
-    ],
-    ddlStyle: { quote: "double", boolLiteral: "oneZero" }
-  }
+    {
+        id: "acme",
+        label: "AcmeDB",
+        supportsSchema: true,
+        logicalTypes: [
+            { id: "TEXT", defaultPhysicalType: "STRING(255)" },
+            { id: "NUMBER", defaultPhysicalType: "INT64" },
+        ],
+        ddlStyle: { quote: "double", boolLiteral: "oneZero" },
+    },
 ];
 
 <ERDDesigner
-  value={doc}
-  onChange={setDoc}
-  hostMetas={hostMetas}
-  hostDdlGenerators={{
-    acme: ({ scope }) => ({ sql: `-- custom acme ddl (${scope.kind})` })
-  }}
+    value={doc}
+    onChange={setDoc}
+    hostMetas={hostMetas}
+    hostDdlGenerators={{
+        acme: ({ scope }) => ({ sql: `-- custom acme ddl (${scope.kind})` }),
+    }}
 />;
 ```
 
@@ -123,10 +125,10 @@ const hostMetas = [
 - `designer.css` and React Flow style are imported by package entry.
 - DDL hooks are runtime-only values and are not serialized in design JSON.
 - Relationship edge customization state is serialized in document relationships:
-  - `cardinality?: "1:1" | "1:N"`
-  - `canvasLineHidden?: boolean`
-  - `linePivotRatio?: number`
-  - `sourceLineY?: number` (`sourceLineRatio` is kept for legacy fallback)
+    - `cardinality?: "1:1" | "1:N"`
+    - `canvasLineHidden?: boolean`
+    - `linePivotRatio?: number`
+    - `sourceLineY?: number` (`sourceLineRatio` is kept for legacy fallback)
 
 ## License
 

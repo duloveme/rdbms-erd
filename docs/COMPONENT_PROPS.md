@@ -59,8 +59,7 @@ Entry point: `exports["."] -> ./src/index.ts`
 
 #### Performance mode
 
-- `largeDiagramThreshold?: number` (default `120`)
-  - Enables compact rendering and visible-only node rendering at scale
+- Large diagrams are handled internally (no prop): when the table count crosses an internal threshold, the designer switches to compact rendering and visible-only node rendering for performance.
 
 #### Relationship lines
 

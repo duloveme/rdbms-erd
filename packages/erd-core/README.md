@@ -17,19 +17,19 @@ import { createEmptyDesign, createColumn, generateDdl } from "@rdbms-erd/core";
 
 const doc = createEmptyDesign("postgres");
 doc.model.tables.push({
-  id: "table-users",
-  logicalName: "Users",
-  physicalName: "users",
-  columns: [
-    createColumn("postgres", {
-      id: "col-users-id",
-      logicalName: "ID",
-      physicalName: "id",
-      logicalType: "NUMBER",
-      nullable: false,
-      isPrimaryKey: true
-    })
-  ]
+    id: "table-users",
+    logicalName: "Users",
+    physicalName: "users",
+    columns: [
+        createColumn("postgres", {
+            id: "col-users-id",
+            logicalName: "ID",
+            physicalName: "id",
+            logicalType: "NUMBER",
+            nullable: false,
+            isPrimaryKey: true,
+        }),
+    ],
 });
 
 console.log(generateDdl(doc));
@@ -58,6 +58,7 @@ console.log(generateDdl(doc));
 ### 1) Override/append dialect metadata with JSON
 
 Use `hostMetas` in options. Merge policy:
+
 - same `id`: override builtin
 - new `id`: append
 
@@ -65,18 +66,18 @@ Use `hostMetas` in options. Merge policy:
 import { resolveDialectMetas } from "@rdbms-erd/core";
 
 const metas = resolveDialectMetas({
-  hostMetas: [
-    {
-      id: "acme",
-      label: "AcmeDB",
-      supportsSchema: true,
-      logicalTypes: [
-        { id: "TEXT", defaultPhysicalType: "STRING(255)" },
-        { id: "NUMBER", defaultPhysicalType: "INT64" }
-      ],
-      ddlStyle: { quote: "double", boolLiteral: "oneZero" }
-    }
-  ]
+    hostMetas: [
+        {
+            id: "acme",
+            label: "AcmeDB",
+            supportsSchema: true,
+            logicalTypes: [
+                { id: "TEXT", defaultPhysicalType: "STRING(255)" },
+                { id: "NUMBER", defaultPhysicalType: "INT64" },
+            ],
+            ddlStyle: { quote: "double", boolLiteral: "oneZero" },
+        },
+    ],
 });
 ```
 
@@ -86,39 +87,42 @@ If a dialect DDL is complex, provide a function in `hostDdlGenerators`.
 If omitted, style-based builtin SQL generation is used.
 
 ```ts
-import { generateDdlForSelection, type DdlGenerateInput } from "@rdbms-erd/core";
+import {
+    generateDdlForSelection,
+    type DdlGenerateInput,
+} from "@rdbms-erd/core";
 
 const sql = generateDdlForSelection(doc, ["table-users"], {
-  hostDdlGenerators: {
-    acme: (input: DdlGenerateInput) => {
-      // input.scope.kind: "all" | "selected"
-      return { sql: "-- custom acme ddl" };
-    }
-  },
-  fallbackOnHookError: true
+    hostDdlGenerators: {
+        acme: (input: DdlGenerateInput) => {
+            // input.scope.kind: "all" | "selected"
+            return { sql: "-- custom acme ddl" };
+        },
+    },
+    fallbackOnHookError: true,
 }).sql;
 ```
 
 ## Main APIs
 
 - Document lifecycle:
-  - `createEmptyDesign`
-  - `serializeDesign`, `parseDesign`, `validateDesignDocument`, `roundTripDesign`
+    - `createEmptyDesign`
+    - `serializeDesign`, `parseDesign`, `validateDesignDocument`, `roundTripDesign`
 - Type defaults:
-  - `defaultPhysicalType`
-  - `createColumn`
-  - `applyLogicalTypeChange`
-  - `convertDesignDialect`
+    - `defaultPhysicalType`
+    - `createColumn`
+    - `applyLogicalTypeChange`
+    - `convertDesignDialect`
 - DDL:
-  - `generateDdl`
-  - `generateDdlForSelection`
-  - `generateIndexDdl`
-  - `generateDdlWithDiagnostics`
-  - `generateIndexDdlWithDiagnostics`
+    - `generateDdl`
+    - `generateDdlForSelection`
+    - `generateIndexDdl`
+    - `generateDdlWithDiagnostics`
+    - `generateIndexDdlWithDiagnostics`
 - Metadata:
-  - `resolveDialectMetas`
-  - `mergeDialectMetas`
-  - `createDefaultDbMetaAdapter` (legacy/advanced adapter path)
+    - `resolveDialectMetas`
+    - `mergeDialectMetas`
+    - `createDefaultDbMetaAdapter` (legacy/advanced adapter path)
 
 ## Notes
 
