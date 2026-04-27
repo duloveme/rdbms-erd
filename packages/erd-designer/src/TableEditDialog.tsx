@@ -5,6 +5,7 @@ import {
     createColumn,
     dialectSupportsSchema,
     defaultPhysicalType,
+    inferLogicalTypeFromPhysical,
     type ColumnModel,
     LOGICAL_DATA_TYPES,
     LogicalDataType,
@@ -93,10 +94,11 @@ function normalizeTableForSave(
     draft: TableModel,
     dialect: RdbmsDialect,
     tr: (key: I18nKey, vars?: I18nVars) => string,
-    coreOptions?: CoreDbMetaOptions,
+    coreOptions: CoreDbMetaOptions | undefined,
+    displayMode: CanvasDisplayMode,
 ): TableModel {
     const filtered = draft.columns.filter((c) => !columnNamesBlank(c));
-    const columns =
+    const baseColumns =
         filtered.length > 0
             ? filtered
             : [
@@ -110,7 +112,45 @@ function normalizeTableForSave(
                       coreOptions,
                   ),
               ];
-    return { ...draft, columns };
+
+    const physicalNameTrim = draft.physicalName?.trim() ?? "";
+    const logicalNameTrim = draft.logicalName?.trim() ?? "";
+    let nextLogicalTableName = draft.logicalName;
+    if (displayMode === "physical" && !logicalNameTrim && physicalNameTrim) {
+        nextLogicalTableName = physicalNameTrim;
+    }
+
+    const columns =
+        displayMode === "physical"
+            ? baseColumns.map((c) => {
+                  const pName = c.physicalName?.trim() ?? "";
+                  const lName = c.logicalName?.trim() ?? "";
+                  const physType = c.physicalType?.trim() ?? "";
+                  let logicalName = c.logicalName;
+                  if (!lName && pName) {
+                      logicalName = pName;
+                  }
+                  const logicalType =
+                      physType.length > 0
+                          ? inferLogicalTypeFromPhysical(
+                                dialect,
+                                physType,
+                                coreOptions,
+                            )
+                          : c.logicalType;
+                  return {
+                      ...c,
+                      logicalName,
+                      logicalType,
+                  };
+              })
+            : baseColumns;
+
+    return {
+        ...draft,
+        logicalName: nextLogicalTableName,
+        columns,
+    };
 }
 
 export function TableEditDialog({
@@ -769,6 +809,7 @@ export function TableEditDialog({
                                     dialect,
                                     t,
                                     coreOptions,
+                                    dialogDisplayMode,
                                 ),
                             );
                             onClose();

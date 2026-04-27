@@ -46,6 +46,8 @@ export const I18N_KEYS = [
   "panel.rdbmsType",
   "panel.noDesignHint",
   "panel.tables.title",
+  "panel.tables.schemaLabel",
+  "panel.tables.schemaAll",
   "panel.tables.searchPlaceholder",
   "panel.tables.empty",
   "panel.stats.schemaVersion",

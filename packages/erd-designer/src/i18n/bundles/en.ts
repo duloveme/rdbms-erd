@@ -47,6 +47,8 @@ export const enBundle: Record<I18nKey, string> = {
   "panel.rdbmsType": "RDBMS type",
   "panel.noDesignHint": "No ER yet. Start from toolbar “New ER” or inject via props.",
   "panel.tables.title": "Tables",
+  "panel.tables.schemaLabel": "Schema",
+  "panel.tables.schemaAll": "All schemas",
   "panel.tables.searchPlaceholder": "Search tables",
   "panel.tables.empty": "No matching tables.",
   "panel.stats.schemaVersion": "schemaVersion: {{value}}",

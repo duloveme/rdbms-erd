@@ -549,6 +549,120 @@ export function defaultPhysicalType(
     );
 }
 
+function normalizePhysicalCompare(s: string): string {
+    return s.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+function physicalTypeBaseName(s: string): string {
+    const n = normalizePhysicalCompare(s);
+    const p = n.indexOf("(");
+    return p >= 0 ? n.slice(0, p).trim() : n;
+}
+
+/**
+ * 물리 데이터 유형 문자열에서 방언 메타의 기본 매핑(및 흔한 SQL 별칭)으로 논리 유형을 추정한다.
+ */
+export function inferLogicalTypeFromPhysical(
+    dialect: RdbmsDialect,
+    physicalType: string,
+    options?: CoreDbMetaOptions,
+): LogicalDataType {
+    const raw = physicalType?.trim();
+    if (!raw) return "TEXT";
+
+    const metas = resolveDialectMetas(options);
+    const meta = metas.find((m) => m.id === dialect);
+    const normFull = normalizePhysicalCompare(raw);
+    const base = physicalTypeBaseName(raw);
+
+    if (meta) {
+        for (const lt of meta.logicalTypes) {
+            if (
+                normalizePhysicalCompare(lt.defaultPhysicalType) === normFull
+            ) {
+                return lt.id;
+            }
+        }
+        for (const lt of meta.logicalTypes) {
+            if (physicalTypeBaseName(lt.defaultPhysicalType) === base) {
+                return lt.id;
+            }
+        }
+    }
+
+    const b = base;
+    if (
+        b === "INT" ||
+        b === "INTEGER" ||
+        b === "BIGINT" ||
+        b === "SMALLINT" ||
+        b === "TINYINT" ||
+        b === "NUMBER" ||
+        b === "SERIAL" ||
+        b === "SERIAL4" ||
+        b === "SERIAL8"
+    ) {
+        return "NUMBER";
+    }
+    if (
+        b === "DECIMAL" ||
+        b === "NUMERIC" ||
+        b === "MONEY" ||
+        b === "SMALLMONEY"
+    ) {
+        return "DECIMAL";
+    }
+    if (
+        b === "FLOAT" ||
+        b === "REAL" ||
+        b === "DOUBLE" ||
+        b === "BINARY_FLOAT" ||
+        b === "BINARY_DOUBLE"
+    ) {
+        return "FLOAT";
+    }
+    if (b === "BIT" || b === "BOOLEAN" || b === "BOOL") {
+        return "BOOLEAN";
+    }
+    if (
+        b === "DATETIME" ||
+        b === "DATETIME2" ||
+        b === "SMALLDATETIME" ||
+        b === "TIMESTAMP" ||
+        b === "TIMESTAMPTZ"
+    ) {
+        return "DATETIME";
+    }
+    if (b === "DATE") return "DATE";
+    if (b === "TIME" || b === "TIMETZ") return "TIME";
+    if (
+        b.includes("CHAR") ||
+        b === "TEXT" ||
+        b === "CLOB" ||
+        b === "NCLOB" ||
+        b === "NCHAR" ||
+        b === "NVARCHAR" ||
+        b === "VARCHAR" ||
+        b === "VARCHAR2"
+    ) {
+        return "TEXT";
+    }
+    if (b === "JSON" || b === "JSONB") return "JSON";
+    if (b === "UUID" || b === "UNIQUEIDENTIFIER") return "UUID";
+    if (
+        b === "BINARY" ||
+        b === "VARBINARY" ||
+        b === "RAW" ||
+        b === "BYTEA" ||
+        b === "BLOB" ||
+        b === "IMAGE"
+    ) {
+        return "BINARY";
+    }
+
+    return "TEXT";
+}
+
 export function getRdbmsDialectCapability(
     dialect: RdbmsDialect,
     options?: CoreDbMetaOptions,

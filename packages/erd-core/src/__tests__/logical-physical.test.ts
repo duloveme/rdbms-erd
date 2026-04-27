@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyLogicalTypeChange, convertDesignDialect, createColumn, createEmptyDesign, defaultPhysicalType } from "../index";
+import {
+    applyLogicalTypeChange,
+    convertDesignDialect,
+    createColumn,
+    createEmptyDesign,
+    defaultPhysicalType,
+    inferLogicalTypeFromPhysical,
+} from "../index";
 
 describe("logical / physical types", () => {
   it("createColumn defaults physical name to logical name and sets default physical type", () => {
@@ -90,5 +97,14 @@ describe("logical / physical types", () => {
     expect(defaultPhysicalType("oracle", "UUID")).toBe("RAW(16)");
     expect(defaultPhysicalType("sqlite", "BINARY")).toBe("BLOB");
     expect(defaultPhysicalType("mssql", "DECIMAL")).toBe("DECIMAL(10,2)");
+  });
+
+  it("inferLogicalTypeFromPhysical maps defaults and common aliases", () => {
+    expect(inferLogicalTypeFromPhysical("mssql", "INT")).toBe("NUMBER");
+    expect(inferLogicalTypeFromPhysical("mssql", "NVARCHAR(500)")).toBe("TEXT");
+    expect(inferLogicalTypeFromPhysical("mssql", "DATETIME2")).toBe("DATETIME");
+    expect(inferLogicalTypeFromPhysical("mssql", "BIT")).toBe("BOOLEAN");
+    expect(inferLogicalTypeFromPhysical("postgres", "INTEGER")).toBe("NUMBER");
+    expect(inferLogicalTypeFromPhysical("postgres", "VARCHAR(255)")).toBe("TEXT");
   });
 });

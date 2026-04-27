@@ -139,9 +139,11 @@ export function buildRelationshipFlowEdges(
         ) => void;
     },
 ): Edge<RelationshipEdgeData>[] {
-    return model.relationships
-        .filter((rel) => isRelationshipLineRenderable(rel, revealHiddenLines))
-        .map((rel) => {
+    const edges: Edge<RelationshipEdgeData>[] = [];
+    for (const rel of model.relationships) {
+        if (!isRelationshipLineRenderable(rel, revealHiddenLines)) {
+            continue;
+        }
             const sourcePos = nodePositions[rel.sourceTableId] ?? { x: 60, y: 60 };
             const targetPos = nodePositions[rel.targetTableId] ?? { x: 60, y: 60 };
             const { sourceSide, targetSide } = resolveRelationshipSides({
@@ -154,7 +156,7 @@ export function buildRelationshipFlowEdges(
                 model,
                 targetSide,
             );
-            if (!targetHandle) return null;
+            if (!targetHandle) continue;
             const sourceTable = model.tables.find(
                 (t) => t.id === rel.sourceTableId,
             );
@@ -172,7 +174,7 @@ export function buildRelationshipFlowEdges(
                       (sourceAnchorMaxY - sourceAnchorMinY) *
                           rel.sourceLineRatio
                     : defaultSourceLineY(sourceTable));
-            return {
+            const edge: Edge<RelationshipEdgeData> = {
                 id: rel.id,
                 source: rel.sourceTableId,
                 target: rel.targetTableId,
@@ -202,7 +204,8 @@ export function buildRelationshipFlowEdges(
                     onSourceLineRatioChange:
                         options?.onSourceLineRatioChange,
                 },
-            } satisfies Edge<RelationshipEdgeData>;
-        })
-        .filter((e): e is Edge<RelationshipEdgeData> => e != null);
+            };
+            edges.push(edge);
+    }
+    return edges;
 }

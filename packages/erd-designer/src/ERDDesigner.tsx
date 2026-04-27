@@ -1110,6 +1110,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const [selectionDragArmed, setSelectionDragArmed] = useState(false);
         const [panelVisible, setPanelVisible] = useState(false);
         const [panelTableQuery, setPanelTableQuery] = useState("");
+        /** 빈 문자열 = 전체보기; 그 외 = 해당 스키마명만 표시 */
+        const [panelTableSchemaFilter, setPanelTableSchemaFilter] =
+            useState("");
         const [hasDesign, setHasDesign] = useState<boolean>(Boolean(value));
         const [newErDialogOpen, setNewErDialogOpen] = useState(false);
         const [newErDraft, setNewErDraft] = useState<{
@@ -1161,9 +1164,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             temporal.pause();
             setDoc(value);
             temporal.resume();
-            pendingFitFromValueRef.current = true;
+            if (!echoedFromLocalChange) {
+                pendingFitFromValueRef.current = true;
+            }
             queueMicrotask(() => {
                 docSyncFromValueRef.current = false;
+                if (echoedFromLocalChange) return;
                 requestAnimationFrame(() => {
                     void rfInstanceRef.current?.fitView({
                         duration: 0,
@@ -1221,9 +1227,34 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 ? `${schema}.${table.physicalName}`
                 : table.physicalName;
         }, []);
+        const panelSchemaOptions = useMemo(() => {
+            const names = new Set<string>();
+            for (const table of doc.model.tables) {
+                const s = table.schemaName?.trim();
+                if (s) names.add(s);
+            }
+            return [...names].sort((a, b) =>
+                a.localeCompare(b, undefined, { sensitivity: "base" }),
+            );
+        }, [doc.model.tables]);
+
+        useEffect(() => {
+            if (!panelTableSchemaFilter) return;
+            if (!panelSchemaOptions.includes(panelTableSchemaFilter)) {
+                setPanelTableSchemaFilter("");
+            }
+        }, [panelSchemaOptions, panelTableSchemaFilter]);
+
         const panelTables = useMemo(() => {
             const q = panelTableQuery.trim().toLowerCase();
-            const mapped = doc.model.tables.map((table) => {
+            const tablesForSchema = panelTableSchemaFilter
+                ? doc.model.tables.filter(
+                      (table) =>
+                          (table.schemaName?.trim() ?? "") ===
+                          panelTableSchemaFilter,
+                  )
+                : doc.model.tables;
+            const mapped = tablesForSchema.map((table) => {
                 const physicalName =
                     formatPhysicalTableName(table) || table.logicalName;
                 const label =
@@ -1249,6 +1280,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             doc.model.tables,
             formatPhysicalTableName,
             panelTableQuery,
+            panelTableSchemaFilter,
         ]);
 
         const largeDefaultViewport = useMemo(
@@ -1988,7 +2020,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             setNewErDraft({
                 projectName: "",
                 projectDescription: "",
-                dialect: doc.model.dialect,
+                dialect: "mssql",
             });
             setNewErDialogOpen(true);
         }, [doc, hasDesign, onRequestNewEr, savedSignature, t]);
@@ -2012,6 +2044,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             setEditingTableId(null);
             setCreatingTableDraft(null);
             setSelectionDragArmed(false);
+            setDisplayMode("logical");
             setNewErDialogOpen(false);
         }, [newErDraft, setDoc, useDesignerStore.temporal]);
 
@@ -2871,7 +2904,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             <div className="erd-right-panel-body">
                                 <div
                                     style={{
-                                        display: "grid",
+                                        display: "flex",
+                                        flexDirection: "column",
                                         gap: 12,
                                         flex: 1,
                                         minHeight: 0,
@@ -2883,6 +2917,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                             gap: 4,
                                             fontSize: 12,
                                             color: "#475569",
+                                            flexShrink: 0,
                                         }}
                                     >
                                         {t("panel.projectName")}
@@ -2917,6 +2952,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                             gap: 4,
                                             fontSize: 12,
                                             color: "#475569",
+                                            flexShrink: 0,
                                         }}
                                     >
                                         {t("panel.projectDescription")}
@@ -2945,6 +2981,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                                 padding: "8px 10px",
                                                 border: "1px solid #cbd5e1",
                                                 borderRadius: 8,
+                                                resize: "vertical",
                                             }}
                                         />
                                     </label>
@@ -2954,6 +2991,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                             gap: 4,
                                             fontSize: 12,
                                             color: "#475569",
+                                            flexShrink: 0,
                                         }}
                                     >
                                         {t("panel.rdbmsType")}
@@ -3000,12 +3038,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                     </label>
                                     <div
                                         style={{
-                                            display: "grid",
+                                            display: "flex",
+                                            flexDirection: "column",
                                             gap: 8,
                                             borderTop: "1px solid #e2e8f0",
                                             paddingTop: 10,
+                                            flex: 1,
                                             minHeight: 0,
-                                            gridTemplateRows: "auto auto 1fr",
                                         }}
                                     >
                                         <div
@@ -3013,10 +3052,53 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                                 fontSize: 12,
                                                 fontWeight: 700,
                                                 color: "#475569",
+                                                flexShrink: 0,
                                             }}
                                         >
                                             {t("panel.tables.title")}
                                         </div>
+                                        <label
+                                            style={{
+                                                display: "grid",
+                                                gap: 4,
+                                                fontSize: 12,
+                                                color: "#475569",
+                                                flexShrink: 0,
+                                            }}
+                                        >
+                                            {t("panel.tables.schemaLabel")}
+                                            <select
+                                                value={panelTableSchemaFilter}
+                                                disabled={!hasDesign}
+                                                aria-label={t(
+                                                    "panel.tables.schemaLabel",
+                                                )}
+                                                onChange={(e) =>
+                                                    setPanelTableSchemaFilter(
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                style={{
+                                                    padding: "8px 10px",
+                                                    border: "1px solid #cbd5e1",
+                                                    borderRadius: 8,
+                                                }}
+                                            >
+                                                <option value="">
+                                                    {t("panel.tables.schemaAll")}
+                                                </option>
+                                                {panelSchemaOptions.map(
+                                                    (schemaName) => (
+                                                        <option
+                                                            key={schemaName}
+                                                            value={schemaName}
+                                                        >
+                                                            {schemaName}
+                                                        </option>
+                                                    ),
+                                                )}
+                                            </select>
+                                        </label>
                                         <input
                                             value={panelTableQuery}
                                             disabled={!hasDesign}
@@ -3029,6 +3111,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                                 "panel.tables.searchPlaceholder",
                                             )}
                                             style={{
+                                                flexShrink: 0,
                                                 padding: "8px 10px",
                                                 border: "1px solid #cbd5e1",
                                                 borderRadius: 8,
@@ -3038,6 +3121,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                             style={{
                                                 border: "1px solid #e2e8f0",
                                                 borderRadius: 8,
+                                                flex: 1,
                                                 minHeight: 0,
                                                 overflow: "auto",
                                                 background:

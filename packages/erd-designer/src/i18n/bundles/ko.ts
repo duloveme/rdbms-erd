@@ -47,6 +47,8 @@ export const koBundle: Record<I18nKey, string> = {
   "panel.rdbmsType": "RDBMS 유형",
   "panel.noDesignHint": "현재 ER 없음. 툴바의 `새 ER` 또는 props 주입으로 시작하세요.",
   "panel.tables.title": "테이블 목록",
+  "panel.tables.schemaLabel": "스키마",
+  "panel.tables.schemaAll": "전체보기",
   "panel.tables.searchPlaceholder": "테이블 검색",
   "panel.tables.empty": "검색 결과가 없습니다.",
   "panel.stats.schemaVersion": "schemaVersion: {{value}}",
