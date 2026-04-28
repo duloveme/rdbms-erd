@@ -1,12 +1,38 @@
+import "./designer.css";
+
+/** 호스트가 `@rdbms-erd/core` 없이 문서 타입·헬퍼만 쓸 때를 위한 얇은 재export */
+export type {
+    ColumnModel,
+    DesignDocument,
+    DesignModel,
+    DiagramLayout,
+    IndexModel,
+    LogicalDataType,
+    RelationshipModel,
+    RdbmsDialect,
+    TableModel,
+} from "@rdbms-erd/core";
+export {
+    applyLogicalTypeChange,
+    convertDesignDialect,
+    convertPhysicalTypeByLogicalType,
+    createColumn,
+    createEmptyDesign,
+    defaultPhysicalType,
+    inferLogicalTypeFromPhysical,
+    LOGICAL_DATA_TYPES,
+    parseDesign,
+    serializeDesign,
+} from "@rdbms-erd/core";
+
 export { ERDDesigner } from "./ERDDesigner";
 export type {
-  CanvasDisplayMode,
-  CreateTableRequestPayload,
-  DesignerThemeMode,
-  ERDDesignerHandle,
-  ERDDesignerProps,
-  ERDDesignerShellProps,
-  ToolbarSlots
+    CanvasDisplayMode,
+    CreateTableRequestPayload,
+    DesignerThemeMode,
+    ERDDesignerHandle,
+    ERDDesignerProps,
+    ERDDesignerShellProps,
 } from "./ERDDesigner";
 export { TableEditDialog } from "./TableEditDialog";
 export type { TableEditDialogProps } from "./TableEditDialog";

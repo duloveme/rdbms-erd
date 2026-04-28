@@ -28,7 +28,7 @@ Entry point: `exports["."] -> ./src/index.ts`
 
 - `value?: DesignDocument`
 - `onChange?: (doc: DesignDocument) => void`
-- `onSaveJson?: (doc: DesignDocument) => void`
+- `onSave?: (doc: DesignDocument) => void`
 
 `value={undefined}` drives the component into an empty/disabled canvas state.
 
@@ -52,6 +52,7 @@ Entry point: `exports["."] -> ./src/index.ts`
 - `toolbarSlots?: ToolbarSlots`
 - `toolbarExtra?: React.ReactNode`
 - `showRightPanel?: boolean`
+- `showNewErButton?: boolean` (default `true`, toolbar "New ER")
 - `dbMetaAdapter?: DbMetaAdapter` (host dialect/type/DDL adapter)
 - `themeMode?: "light" | "dark"` (controlled)
 - `defaultThemeMode?: "light" | "dark"` (default `light`, uncontrolled)

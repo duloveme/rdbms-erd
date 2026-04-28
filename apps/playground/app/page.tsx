@@ -844,9 +844,14 @@ export default function Page() {
         useState(false);
     const [elevateSelectedRelationships, setElevateSelectedRelationships] =
         useState(true);
+    const [showNewErButton, setShowNewErButton] = useState(true);
     const [tableWidth, setTableWidth] = useState(400);
     const handleDesignChange = useCallback((doc: DesignDocument) => {
         setDesign(doc);
+    }, []);
+    const handleDesignSave = useCallback((doc: DesignDocument) => {
+        navigator.clipboard.writeText(JSON.stringify(doc, null, 2));
+        alert("copy design to clipboard");
     }, []);
 
     return (
@@ -941,6 +946,20 @@ export default function Page() {
                         alignItems: "center",
                     }}
                 >
+                    <input
+                        type="checkbox"
+                        checked={showNewErButton}
+                        onChange={(e) => setShowNewErButton(e.target.checked)}
+                    />
+                    showNewErButton
+                </label>
+                <label
+                    style={{
+                        display: "inline-flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}
+                >
                     tableWidth
                     <input
                         type="number"
@@ -1008,6 +1027,8 @@ export default function Page() {
                         elevateSelectedRelationships={
                             elevateSelectedRelationships
                         }
+                        showNewErButton={showNewErButton}
+                        onSave={handleDesignSave}
                     />
                 </div>
             </section>

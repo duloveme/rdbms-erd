@@ -1,6 +1,5 @@
 "use client";
 
-import "./designer.css";
 import "@xyflow/react/dist/style.css";
 import {
     applyEdgeChanges,
@@ -94,9 +93,17 @@ import { createId } from "./id";
 import { ErdI18nProvider, useErdI18n } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
 import {
+    fkPhysicalInputShowsConflict,
+    fkPlanNeedsRenameDialog,
+    physicalNameUsedOnTarget,
+    planForeignKeyColumns,
+    validateFkRenameRows,
+} from "./fkColumnPlan";
+import {
     TABLE_RELATIONSHIP_SOURCE_HANDLE_LEFT_ID,
     TABLE_RELATIONSHIP_SOURCE_HANDLE_RIGHT_ID,
     buildRelationshipFlowEdges,
+    sourceLineYForSourceColumnRow,
     targetFkColumnHandleId,
     type RelationshipEdgeData,
 } from "./relationshipEdges";
@@ -202,10 +209,7 @@ function horizontalDetourRange(params: {
     if (sourcePosition === Position.Right && targetPosition === Position.Left) {
         // 반대편 테이블 사이에서 source 출발/target 진입 최소 길이를 우선 보장한다.
         const minDepart = Math.max(REL_INNER_MARGIN, REL_MIN_SOURCE_DEPART);
-        const minApproach = Math.max(
-            REL_INNER_MARGIN,
-            REL_MIN_TARGET_APPROACH,
-        );
+        const minApproach = Math.max(REL_INNER_MARGIN, REL_MIN_TARGET_APPROACH);
         const innerMin = sourceX + minDepart;
         const innerMax = targetX - minApproach;
         if (innerMax - innerMin >= REL_MIN_INNER_SPAN)
@@ -220,10 +224,7 @@ function horizontalDetourRange(params: {
     }
     if (sourcePosition === Position.Left && targetPosition === Position.Right) {
         const minDepart = Math.max(REL_INNER_MARGIN, REL_MIN_SOURCE_DEPART);
-        const minApproach = Math.max(
-            REL_INNER_MARGIN,
-            REL_MIN_TARGET_APPROACH,
-        );
+        const minApproach = Math.max(REL_INNER_MARGIN, REL_MIN_TARGET_APPROACH);
         const innerMin = targetX + minApproach;
         const innerMax = sourceX - minDepart;
         if (innerMax - innerMin >= REL_MIN_INNER_SPAN)
@@ -320,7 +321,7 @@ function buildRelationshipRouteInfo(params: {
                         sourcePosition,
                         targetPosition,
                     })
-                : lerp(range.min, range.max, normalized);
+                  : lerp(range.min, range.max, normalized);
         return {
             path: `M ${sourceX} ${sourceY} L ${detourX} ${sourceY} L ${detourX} ${targetY} L ${targetX} ${targetY}`,
             pivotHandleX: detourX,
@@ -543,10 +544,7 @@ function RelationshipEdge({
                     sourceAnchorMinY,
                     Math.min(sourceAnchorMaxY, point.y - sourceTableTopY),
                 );
-                const span = Math.max(
-                    1,
-                    sourceAnchorMaxY - sourceAnchorMinY,
-                );
+                const span = Math.max(1, sourceAnchorMaxY - sourceAnchorMinY);
                 const ratio = clamp01((next - sourceAnchorMinY) / span);
                 onSourceLineRatioChange(relationshipId, ratio);
             };
@@ -937,12 +935,12 @@ export interface ERDDesignerHandle {
 }
 
 /** 테이블 수가 이 값 이상이면 compact + visible-only 렌더 등 성능 모드로 전환한다. */
-const INTERNAL_LARGE_DIAGRAM_TABLE_THRESHOLD = 120;
+const INTERNAL_LARGE_DIAGRAM_TABLE_THRESHOLD = 1000;
 
 export interface ERDDesignerProps {
     value?: DesignDocument;
     onChange?: (doc: DesignDocument) => void;
-    onSaveJson?: (doc: DesignDocument) => void;
+    onSave?: (doc: DesignDocument) => void;
     onRequestNewEr?: (currentDialect: RdbmsDialect) => void;
     /** 엣지를 빈 캔버스에 드롭했을 때(흐름 좌표·화면 좌표). 새 테이블 UI는 호스트에서 연다. */
     onRequestCreateTable?: (payload: CreateTableRequestPayload) => void;
@@ -968,6 +966,8 @@ export interface ERDDesignerProps {
     t?: (key: I18nKey, vars?: I18nVars) => string;
     /** Show built-in right-side ER property panel. */
     showRightPanel?: boolean;
+    /** Show toolbar "New ER" button. Default true. */
+    showNewErButton?: boolean;
     /** Controlled theme mode for the designer chrome. */
     themeMode?: DesignerThemeMode;
     /** Initial theme mode when `themeMode` is not controlled. Default `light`. */
@@ -997,7 +997,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         {
             value,
             onChange,
-            onSaveJson,
+            onSave,
             onRequestNewEr,
             onRequestCreateTable,
             toolbarExtra,
@@ -1007,6 +1007,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             onRevealHiddenRelationshipLinesChange,
             elevateSelectedRelationships = false,
             showRightPanel = false,
+            showNewErButton = true,
             themeMode: themeModeProp,
             defaultThemeMode = "light",
             onThemeModeChange,
@@ -1115,6 +1116,19 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             useState("");
         const [hasDesign, setHasDesign] = useState<boolean>(Boolean(value));
         const [newErDialogOpen, setNewErDialogOpen] = useState(false);
+        const [fkCollisionDialog, setFkCollisionDialog] = useState<{
+            sourceTableId: string;
+            targetTableId: string;
+            sourceColumnId?: string;
+            rows: Array<{
+                sourceColumnId: string;
+                logicalName: string;
+                physicalName: string;
+            }>;
+        } | null>(null);
+        const [fkCollisionErrorKey, setFkCollisionErrorKey] = useState<
+            "empty" | "dupWithin" | null
+        >(null);
         const [newErDraft, setNewErDraft] = useState<{
             projectName: string;
             projectDescription: string;
@@ -1191,9 +1205,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             const set = new Set<string>();
             for (const id of selectedEdgeIds) {
                 const rel = doc.model.relationships.find((r) => r.id === id);
-                if (rel) {
-                    set.add(rel.sourceTableId);
-                    set.add(rel.targetTableId);
+                if (!rel) continue;
+                const members = rel.relationshipGroupId
+                    ? doc.model.relationships.filter(
+                          (r) =>
+                              r.relationshipGroupId === rel.relationshipGroupId,
+                      )
+                    : [rel];
+                for (const m of members) {
+                    set.add(m.sourceTableId);
+                    set.add(m.targetTableId);
                 }
             }
             return set;
@@ -1207,7 +1228,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             const onDown = (e: MouseEvent) => {
                 const el = edgeContextMenuRef.current;
                 const t = e.target;
-                if (el && t instanceof globalThis.Node && el.contains(t)) return;
+                if (el && t instanceof globalThis.Node && el.contains(t))
+                    return;
                 setEdgeContextMenu(null);
             };
             window.addEventListener("keydown", onKey);
@@ -1498,8 +1520,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                           // 유형별 기본 배치로 즉시 재계산되도록 ratio를 비운다.
                                           linePivotRatio: routingTypeChanged
                                               ? undefined
-                                              : (nextEdge.data as RelationshipEdgeData)
-                                                    .linePivotRatio,
+                                              : (
+                                                    nextEdge.data as RelationshipEdgeData
+                                                ).linePivotRatio,
                                       }
                                     : nextEdge.data;
                             const merged = {
@@ -1540,7 +1563,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 if (!edgeData) continue;
                 const prevSignature =
                     relationshipEndpointSignatureRef.current[relationshipId];
-                if (prevSignature !== undefined && prevSignature !== signature) {
+                if (
+                    prevSignature !== undefined &&
+                    prevSignature !== signature
+                ) {
                     // source/target 유형이 바뀌면 기존 세로선 X 비율을 무효화한다.
                     // 이후 사용자가 드래그해 다시 저장하기 전까지는 undefined를 유지한다.
                     setRelationshipSourceLineRatio(
@@ -1609,7 +1635,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const onEdgeClick = useCallback(
             (_event: React.MouseEvent, edge: Edge) => {
-            setElevatedEdgeIds([edge.id]);
+                setElevatedEdgeIds([edge.id]);
             },
             [],
         );
@@ -1739,11 +1765,15 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             [addTable, hasDesign],
         );
 
-        const connectWithForeignKey = useCallback(
+        const applyForeignKeyBatch = useCallback(
             (
                 sourceTableId: string,
                 targetTableId: string,
-                sourceColumnId?: string,
+                sourceColumnId: string | undefined,
+                nameOverrides: Map<
+                    string,
+                    { logicalName: string; physicalName: string }
+                > | null,
             ) => {
                 if (!hasDesign) return;
                 if (sourceTableId === targetTableId) return;
@@ -1767,7 +1797,34 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         : sourcePkColumns;
                 if (sourceColumns.length === 0) return;
 
+                const isCompositeBatch = sourceColumns.length > 1;
+                const relationshipGroupId = isCompositeBatch
+                    ? createId("relgrp")
+                    : undefined;
+                const sharedSourceLineY = isCompositeBatch
+                    ? sourceLineYForSourceColumnRow(
+                          sourceTable,
+                          sourceColumns[0]?.id,
+                      )
+                    : undefined;
+
+                const namesFor = (sourceColId: string) => {
+                    const o = nameOverrides?.get(sourceColId);
+                    if (o) {
+                        return {
+                            logicalName: o.logicalName,
+                            physicalName: o.physicalName,
+                        };
+                    }
+                    const sc = sourceColumns.find((c) => c.id === sourceColId);
+                    return {
+                        logicalName: sc?.logicalName ?? "",
+                        physicalName: sc?.physicalName ?? "",
+                    };
+                };
+
                 let nextTargetColumns = [...targetTable.columns];
+                let targetColumnsTouched = false;
                 const relationshipsToAdd: Array<{
                     sourceColumnId: string;
                     targetColumnId: string;
@@ -1786,22 +1843,48 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     if (existingFkColumn) {
                         targetColumnId = existingFkColumn.id;
                     } else {
-                        const fkColumn = createColumn(
-                            latestDoc.model.dialect,
-                            {
-                                id: createId("col"),
-                                logicalName: sourceColumn.logicalName,
-                                physicalName: sourceColumn.physicalName,
+                        const nm = namesFor(sourceColumn.id);
+                        const physKey = nm.physicalName.trim();
+                        const samePhysIdx = nextTargetColumns.findIndex(
+                            (c) => c.physicalName.trim() === physKey,
+                        );
+                        if (samePhysIdx >= 0) {
+                            const prev = nextTargetColumns[samePhysIdx]!;
+                            nextTargetColumns = [...nextTargetColumns];
+                            nextTargetColumns[samePhysIdx] = {
+                                ...prev,
+                                logicalName: nm.logicalName,
+                                physicalName: nm.physicalName,
                                 logicalType: sourceColumn.logicalType,
                                 nullable: true,
                                 isForeignKey: true,
                                 referencesPrimaryColumnId: sourceColumn.id,
-                            },
-                            coreOptions,
-                        );
-                        nextTargetColumns = [...nextTargetColumns, fkColumn];
-                        targetColumnId = fkColumn.id;
-                        autoCreatedTargetColumn = true;
+                            };
+                            targetColumnId = prev.id;
+                            autoCreatedTargetColumn = false;
+                            targetColumnsTouched = true;
+                        } else {
+                            const fkColumn = createColumn(
+                                latestDoc.model.dialect,
+                                {
+                                    id: createId("col"),
+                                    logicalName: nm.logicalName,
+                                    physicalName: nm.physicalName,
+                                    logicalType: sourceColumn.logicalType,
+                                    nullable: true,
+                                    isForeignKey: true,
+                                    referencesPrimaryColumnId: sourceColumn.id,
+                                },
+                                coreOptions,
+                            );
+                            nextTargetColumns = [
+                                ...nextTargetColumns,
+                                fkColumn,
+                            ];
+                            targetColumnId = fkColumn.id;
+                            autoCreatedTargetColumn = true;
+                            targetColumnsTouched = true;
+                        }
                     }
 
                     const relExists = latestDoc.model.relationships.some(
@@ -1820,7 +1903,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     }
                 }
 
-                if (nextTargetColumns.length !== targetTable.columns.length) {
+                if (targetColumnsTouched) {
                     setTableColumns(targetTableId, nextTargetColumns);
                 }
                 for (const rel of relationshipsToAdd) {
@@ -1832,9 +1915,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         targetColumnId: rel.targetColumnId,
                         autoCreatedTargetColumn: rel.autoCreatedTargetColumn,
                         originPkColumnId: rel.sourceColumnId,
+                        relationshipGroupId,
                         cardinality: relationshipCardinalityMode,
                         sourceLineRatio: 0.5,
                         linePivotRatio: 0.5,
+                        ...(sharedSourceLineY !== undefined
+                            ? { sourceLineY: sharedSourceLineY }
+                            : {}),
                     });
                 }
             },
@@ -1844,6 +1931,112 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 hasDesign,
                 relationshipCardinalityMode,
                 setTableColumns,
+                useDesignerStore,
+            ],
+        );
+
+        const confirmFkCollisionDialog = useCallback(() => {
+            if (!fkCollisionDialog) return;
+            const latestDoc = useDesignerStore.getState().doc;
+            const targetTable = latestDoc.model.tables.find(
+                (t) => t.id === fkCollisionDialog.targetTableId,
+            );
+            if (!targetTable) return;
+            const draftRows = fkCollisionDialog.rows.map((r) => ({
+                sourceColumnId: r.sourceColumnId,
+                logicalName: r.logicalName,
+                physicalName: r.physicalName,
+            }));
+            const v = validateFkRenameRows(draftRows);
+            if (!v.ok) {
+                setFkCollisionErrorKey(v.messageKey);
+                return;
+            }
+            const map = new Map(
+                fkCollisionDialog.rows.map((r) => [
+                    r.sourceColumnId,
+                    {
+                        logicalName: r.logicalName.trim(),
+                        physicalName: r.physicalName.trim(),
+                    },
+                ]),
+            );
+            applyForeignKeyBatch(
+                fkCollisionDialog.sourceTableId,
+                fkCollisionDialog.targetTableId,
+                fkCollisionDialog.sourceColumnId,
+                map,
+            );
+            setFkCollisionDialog(null);
+            setFkCollisionErrorKey(null);
+        }, [applyForeignKeyBatch, fkCollisionDialog, useDesignerStore]);
+
+        const connectWithForeignKey = useCallback(
+            (
+                sourceTableId: string,
+                targetTableId: string,
+                sourceColumnId?: string,
+            ) => {
+                if (!hasDesign) return;
+                if (fkCollisionDialog) return;
+                if (sourceTableId === targetTableId) return;
+                const latestDoc = useDesignerStore.getState().doc;
+                const sourceTable = latestDoc.model.tables.find(
+                    (t) => t.id === sourceTableId,
+                );
+                const targetTable = latestDoc.model.tables.find(
+                    (t) => t.id === targetTableId,
+                );
+                if (!sourceTable || !targetTable) return;
+
+                const sourcePkColumns = sourceTable.columns.filter(
+                    (c) => c.isPrimaryKey,
+                );
+                if (sourcePkColumns.length === 0) return;
+
+                const sourceColumns =
+                    sourceColumnId !== undefined
+                        ? sourcePkColumns.filter((c) => c.id === sourceColumnId)
+                        : sourcePkColumns;
+                if (sourceColumns.length === 0) return;
+
+                const planned = planForeignKeyColumns(
+                    sourceTable,
+                    targetTable,
+                    sourceColumns,
+                );
+                if (fkPlanNeedsRenameDialog(planned, targetTable.columns)) {
+                    const conflictRows = planned.filter((p) =>
+                        physicalNameUsedOnTarget(
+                            targetTable.columns,
+                            p.proposedPhysical,
+                            p.reuseExisting?.id,
+                        ),
+                    );
+                    setFkCollisionErrorKey(null);
+                    setFkCollisionDialog({
+                        sourceTableId,
+                        targetTableId,
+                        sourceColumnId,
+                        rows: conflictRows.map((p) => ({
+                            sourceColumnId: p.sourceColumn.id,
+                            logicalName: p.proposedLogical,
+                            physicalName: p.proposedPhysical,
+                        })),
+                    });
+                    return;
+                }
+                applyForeignKeyBatch(
+                    sourceTableId,
+                    targetTableId,
+                    sourceColumnId,
+                    null,
+                );
+            },
+            [
+                applyForeignKeyBatch,
+                fkCollisionDialog,
+                hasDesign,
                 useDesignerStore,
             ],
         );
@@ -2374,22 +2567,24 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             >
                 <div className="erd-toolbar">
                     <div className="erd-toolbar-group">
-                        <button
-                            type="button"
-                            className="erd-toolbar-btn"
-                            title={t("toolbar.newEr")}
-                            aria-label={t("toolbar.newEr")}
-                            onClick={createNewEr}
-                        >
-                            <FilePlus size={16} />
-                        </button>
+                        {showNewErButton ? (
+                            <button
+                                type="button"
+                                className="erd-toolbar-btn"
+                                title={t("toolbar.newEr")}
+                                aria-label={t("toolbar.newEr")}
+                                onClick={createNewEr}
+                            >
+                                <FilePlus size={16} />
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             className="erd-toolbar-btn"
                             title={t("toolbar.saveJson")}
                             onClick={async () => {
                                 if (toolbarDisabled || !isDirty) return;
-                                onSaveJson?.(doc);
+                                onSave?.(doc);
                                 setSavedSignature(serializeDesign(doc));
                             }}
                             disabled={toolbarDisabled || !isDirty}
@@ -2482,7 +2677,29 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             title={t("toolbar.relationshipMode")}
                             disabled={toolbarDisabled}
                             onClick={() => {
-                                setRelationshipCreateMode((prev) => !prev);
+                                setRelationshipCreateMode((prev) => {
+                                    const next = !prev;
+                                    if (next) {
+                                        setSelectedNodeIds([]);
+                                        setSelectedEdgeIds([]);
+                                        setElevatedEdgeIds([]);
+                                        setNodes((nds) =>
+                                            nds.map((n) =>
+                                                n.selected
+                                                    ? { ...n, selected: false }
+                                                    : n,
+                                            ),
+                                        );
+                                        setEdges((eds) =>
+                                            eds.map((e) =>
+                                                e.selected
+                                                    ? { ...e, selected: false }
+                                                    : e,
+                                            ),
+                                        );
+                                    }
+                                    return next;
+                                });
                                 setRelationshipCreateSelection([]);
                             }}
                         >
@@ -3085,7 +3302,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                                 }}
                                             >
                                                 <option value="">
-                                                    {t("panel.tables.schemaAll")}
+                                                    {t(
+                                                        "panel.tables.schemaAll",
+                                                    )}
                                                 </option>
                                                 {panelSchemaOptions.map(
                                                     (schemaName) => (
@@ -3269,6 +3488,292 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         setCreateTableContext(null);
                     }}
                 />
+                {fkCollisionDialog ? (
+                    <div className="erd-dialog-backdrop" role="presentation">
+                        <div
+                            className="erd-dialog"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="erd-fk-collision-title"
+                            style={{ width: "min(640px, 100%)" }}
+                        >
+                            <div className="erd-dialog-header">
+                                <span id="erd-fk-collision-title">
+                                    {t("dialog.fkCollision.title")}
+                                </span>
+                            </div>
+                            <div
+                                className="erd-dialog-body"
+                                style={{
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: 12,
+                                }}
+                            >
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontSize: 13,
+                                        color: "#64748b",
+                                    }}
+                                >
+                                    {t("dialog.fkCollision.hint")}
+                                </p>
+                                {fkCollisionErrorKey ? (
+                                    <div
+                                        role="alert"
+                                        style={{
+                                            fontSize: 13,
+                                            color: "#b91c1c",
+                                        }}
+                                    >
+                                        {t(
+                                            `dialog.fkCollision.error.${fkCollisionErrorKey}`,
+                                        )}
+                                    </div>
+                                ) : null}
+                                <div style={{ overflowX: "auto" }}>
+                                    <table
+                                        style={{
+                                            width: "100%",
+                                            borderCollapse: "collapse",
+                                            fontSize: 13,
+                                        }}
+                                    >
+                                        <thead>
+                                            <tr>
+                                                <th
+                                                    style={{
+                                                        textAlign: "left",
+                                                        padding:
+                                                            "6px 8px 8px 0",
+                                                        borderBottom:
+                                                            "1px solid #e2e8f0",
+                                                    }}
+                                                >
+                                                    {t(
+                                                        "dialog.fkCollision.sourcePk",
+                                                    )}
+                                                </th>
+                                                <th
+                                                    style={{
+                                                        textAlign: "left",
+                                                        padding:
+                                                            "6px 8px 8px 0",
+                                                        borderBottom:
+                                                            "1px solid #e2e8f0",
+                                                    }}
+                                                >
+                                                    {t(
+                                                        "dialog.fkCollision.fkLogical",
+                                                    )}
+                                                </th>
+                                                <th
+                                                    style={{
+                                                        textAlign: "left",
+                                                        padding: "6px 0 8px 0",
+                                                        borderBottom:
+                                                            "1px solid #e2e8f0",
+                                                    }}
+                                                >
+                                                    {t(
+                                                        "dialog.fkCollision.fkPhysical",
+                                                    )}
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {fkCollisionDialog.rows.map(
+                                                (row, idx) => {
+                                                    const targetColsForFk =
+                                                        doc.model.tables.find(
+                                                            (tb) =>
+                                                                tb.id ===
+                                                                fkCollisionDialog.targetTableId,
+                                                        )?.columns ?? [];
+                                                    const physicalConflict =
+                                                        fkPhysicalInputShowsConflict(
+                                                            targetColsForFk,
+                                                            fkCollisionDialog.rows,
+                                                            idx,
+                                                        );
+                                                    const srcTable =
+                                                        doc.model.tables.find(
+                                                            (tb) =>
+                                                                tb.id ===
+                                                                fkCollisionDialog.sourceTableId,
+                                                        );
+                                                    const srcCol =
+                                                        srcTable?.columns.find(
+                                                            (c) =>
+                                                                c.id ===
+                                                                row.sourceColumnId,
+                                                        );
+                                                    const label = srcCol
+                                                        ? `${srcCol.logicalName} / ${srcCol.physicalName}`
+                                                        : row.sourceColumnId;
+                                                    return (
+                                                        <tr
+                                                            key={
+                                                                row.sourceColumnId
+                                                            }
+                                                        >
+                                                            <td
+                                                                style={{
+                                                                    padding:
+                                                                        "8px 8px 0 0",
+                                                                    verticalAlign:
+                                                                        "middle",
+                                                                    color: "#334155",
+                                                                }}
+                                                            >
+                                                                {label}
+                                                            </td>
+                                                            <td
+                                                                style={{
+                                                                    padding:
+                                                                        "8px 8px 0 0",
+                                                                    verticalAlign:
+                                                                        "middle",
+                                                                }}
+                                                            >
+                                                                <input
+                                                                    type="text"
+                                                                    className="erd-input"
+                                                                    value={
+                                                                        row.logicalName
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) => {
+                                                                        const v =
+                                                                            e
+                                                                                .target
+                                                                                .value;
+                                                                        setFkCollisionDialog(
+                                                                            (
+                                                                                prev,
+                                                                            ) => {
+                                                                                if (
+                                                                                    !prev
+                                                                                )
+                                                                                    return prev;
+                                                                                const rows =
+                                                                                    [
+                                                                                        ...prev.rows,
+                                                                                    ];
+                                                                                rows[
+                                                                                    idx
+                                                                                ] =
+                                                                                    {
+                                                                                        ...rows[
+                                                                                            idx
+                                                                                        ],
+                                                                                        logicalName:
+                                                                                            v,
+                                                                                    };
+                                                                                return {
+                                                                                    ...prev,
+                                                                                    rows,
+                                                                                };
+                                                                            },
+                                                                        );
+                                                                        setFkCollisionErrorKey(
+                                                                            null,
+                                                                        );
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                            <td
+                                                                style={{
+                                                                    padding:
+                                                                        "8px 0 0 0",
+                                                                    verticalAlign:
+                                                                        "middle",
+                                                                }}
+                                                            >
+                                                                <input
+                                                                    type="text"
+                                                                    className="erd-input"
+                                                                    value={
+                                                                        row.physicalName
+                                                                    }
+                                                                    data-physical-conflict={
+                                                                        physicalConflict
+                                                                            ? "true"
+                                                                            : undefined
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) => {
+                                                                        const v =
+                                                                            e
+                                                                                .target
+                                                                                .value;
+                                                                        setFkCollisionDialog(
+                                                                            (
+                                                                                prev,
+                                                                            ) => {
+                                                                                if (
+                                                                                    !prev
+                                                                                )
+                                                                                    return prev;
+                                                                                const rows =
+                                                                                    [
+                                                                                        ...prev.rows,
+                                                                                    ];
+                                                                                rows[
+                                                                                    idx
+                                                                                ] =
+                                                                                    {
+                                                                                        ...rows[
+                                                                                            idx
+                                                                                        ],
+                                                                                        physicalName:
+                                                                                            v,
+                                                                                    };
+                                                                                return {
+                                                                                    ...prev,
+                                                                                    rows,
+                                                                                };
+                                                                            },
+                                                                        );
+                                                                        setFkCollisionErrorKey(
+                                                                            null,
+                                                                        );
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                },
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div className="erd-dialog-footer">
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--ghost"
+                                    onClick={() => {
+                                        setFkCollisionDialog(null);
+                                        setFkCollisionErrorKey(null);
+                                    }}
+                                >
+                                    {t("dialog.cancel")}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--primary"
+                                    onClick={confirmFkCollisionDialog}
+                                >
+                                    {t("dialog.fkCollision.confirm")}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
                 {newErDialogOpen ? (
                     <div className="erd-dialog-backdrop" role="presentation">
                         <div

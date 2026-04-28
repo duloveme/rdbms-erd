@@ -35,6 +35,16 @@ function shouldDeleteFkColumnByRelationship(
     );
 }
 
+function relationshipGroupMembers(
+    relationships: RelationshipModel[],
+    rel: RelationshipModel,
+): RelationshipModel[] {
+    if (!rel.relationshipGroupId) return [rel];
+    return relationships.filter(
+        (r) => r.relationshipGroupId === rel.relationshipGroupId,
+    );
+}
+
 export interface DesignerState {
     doc: DesignDocument;
     setDoc: (doc: DesignDocument) => void;
@@ -153,43 +163,52 @@ export function createDesignerStore(
                     }),
                 removeRelationship: (relationshipId) =>
                     set((state) => {
-                        const rel = state.doc.model.relationships.find(
+                        const first = state.doc.model.relationships.find(
                             (r) => r.id === relationshipId,
                         );
-                        if (rel?.targetColumnId) {
+                        if (!first) return;
+                        const members = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            first,
+                        );
+                        const idsToRemove = new Set(
+                            members.map((m) => m.id),
+                        );
+
+                        for (const rel of members) {
+                            if (!rel.targetColumnId) continue;
                             const targetTable = state.doc.model.tables.find(
                                 (t) => t.id === rel.targetTableId,
                             );
-                            if (targetTable) {
-                                const targetColumn = targetTable.columns.find(
-                                    (c) => c.id === rel.targetColumnId,
+                            if (!targetTable) continue;
+                            const targetColumn = targetTable.columns.find(
+                                (c) => c.id === rel.targetColumnId,
+                            );
+                            const usedByOthers =
+                                state.doc.model.relationships.some(
+                                    (r) =>
+                                        !idsToRemove.has(r.id) &&
+                                        r.targetTableId ===
+                                            rel.targetTableId &&
+                                        r.targetColumnId ===
+                                            rel.targetColumnId,
                                 );
-                                const usedByOthers =
-                                    state.doc.model.relationships.some(
-                                        (r) =>
-                                            r.id !== relationshipId &&
-                                            r.targetTableId ===
-                                                rel.targetTableId &&
-                                            r.targetColumnId ===
-                                                rel.targetColumnId,
+                            const shouldDeleteFkColumn =
+                                !usedByOthers &&
+                                shouldDeleteFkColumnByRelationship(
+                                    rel,
+                                    targetColumn,
+                                );
+                            if (shouldDeleteFkColumn) {
+                                targetTable.columns =
+                                    targetTable.columns.filter(
+                                        (c) => c.id !== rel.targetColumnId,
                                     );
-                                const shouldDeleteFkColumn =
-                                    !usedByOthers &&
-                                    shouldDeleteFkColumnByRelationship(
-                                        rel,
-                                        targetColumn,
-                                    );
-                                if (shouldDeleteFkColumn) {
-                                    targetTable.columns =
-                                        targetTable.columns.filter(
-                                            (c) => c.id !== rel.targetColumnId,
-                                        );
-                                }
                             }
                         }
                         state.doc.model.relationships =
                             state.doc.model.relationships.filter(
-                                (r) => r.id !== relationshipId,
+                                (r) => !idsToRemove.has(r.id),
                             );
                     }),
                 updateTable: (tableId, updater) =>
@@ -372,8 +391,14 @@ export function createDesignerStore(
                             (r) => r.id === relationshipId,
                         );
                         if (!rel) return;
-                        if (hidden) rel.canvasLineHidden = true;
-                        else delete rel.canvasLineHidden;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
+                        for (const r of targets) {
+                            if (hidden) r.canvasLineHidden = true;
+                            else delete r.canvasLineHidden;
+                        }
                     }),
                 setRelationshipCardinality: (relationshipId, cardinality) =>
                     set((state) => {
@@ -381,7 +406,13 @@ export function createDesignerStore(
                             (r) => r.id === relationshipId,
                         );
                         if (!rel) return;
-                        rel.cardinality = cardinality;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
+                        for (const r of targets) {
+                            r.cardinality = cardinality;
+                        }
                     }),
                 setRelationshipLinePivotRatio: (relationshipId, ratio) =>
                     set((state) => {
@@ -389,11 +420,20 @@ export function createDesignerStore(
                             (r) => r.id === relationshipId,
                         );
                         if (!rel) return;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
                         if (ratio === undefined || !Number.isFinite(ratio)) {
-                            rel.linePivotRatio = undefined;
+                            for (const r of targets) {
+                                r.linePivotRatio = undefined;
+                            }
                             return;
                         }
-                        rel.linePivotRatio = Math.max(0, Math.min(1, ratio));
+                        const clamped = Math.max(0, Math.min(1, ratio));
+                        for (const r of targets) {
+                            r.linePivotRatio = clamped;
+                        }
                     }),
                 setRelationshipSourceLineRatio: (relationshipId, ratio) =>
                     set((state) => {
@@ -401,10 +441,16 @@ export function createDesignerStore(
                             (r) => r.id === relationshipId,
                         );
                         if (!rel) return;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
                         const normalized = Number.isFinite(ratio)
                             ? Math.max(0, Math.min(1, ratio))
                             : 0;
-                        rel.sourceLineRatio = normalized;
+                        for (const r of targets) {
+                            r.sourceLineRatio = normalized;
+                        }
                     }),
                 setRelationshipSourceLineY: (relationshipId, y) =>
                     set((state) => {
@@ -412,15 +458,35 @@ export function createDesignerStore(
                             (r) => r.id === relationshipId,
                         );
                         if (!rel) return;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
                         const normalized = Number.isFinite(y)
                             ? Math.max(0, y)
                             : 0;
-                        rel.sourceLineY = normalized;
+                        for (const r of targets) {
+                            r.sourceLineY = normalized;
+                        }
                     }),
                 deleteSelection: (tableIds, relationshipIds) =>
                     set((state) => {
                         const tableSet = new Set(tableIds);
                         const relSet = new Set(relationshipIds);
+                        for (const id of relationshipIds) {
+                            const rel = state.doc.model.relationships.find(
+                                (r) => r.id === id,
+                            );
+                            if (!rel?.relationshipGroupId) continue;
+                            for (const r of state.doc.model.relationships) {
+                                if (
+                                    r.relationshipGroupId ===
+                                    rel.relationshipGroupId
+                                ) {
+                                    relSet.add(r.id);
+                                }
+                            }
+                        }
                         for (const rel of state.doc.model.relationships) {
                             if (
                                 tableSet.has(rel.sourceTableId) ||

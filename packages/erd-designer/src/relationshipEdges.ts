@@ -41,7 +41,11 @@ const NODE_BODY_PAD_TOP = 2;
 const NODE_BODY_PAD_BOTTOM = 4;
 const NODE_ROW_PX = 36;
 
-function rowCenterTopPx(rowIndex: number, columnCount: number): number {
+/** 테이블 노드에서 컬럼 행(rowIndex)의 세로 중앙까지의 top 기준 px (TableNode와 동일 기하). */
+export function relationshipRowCenterTopPx(
+    rowIndex: number,
+    columnCount: number,
+): number {
     if (columnCount <= 0) return NODE_HEADER_PX + 18;
     const idx = Math.max(0, Math.min(rowIndex, columnCount - 1));
     return (
@@ -52,10 +56,28 @@ function rowCenterTopPx(rowIndex: number, columnCount: number): number {
 function defaultSourceLineY(
     sourceTable: DesignModel["tables"][number] | undefined,
 ): number {
-    if (!sourceTable) return rowCenterTopPx(0, 1);
+    if (!sourceTable) return relationshipRowCenterTopPx(0, 1);
     const pkIndex = sourceTable.columns.findIndex((c) => c.isPrimaryKey);
     const rowIndex = pkIndex >= 0 ? pkIndex : 0;
-    return rowCenterTopPx(rowIndex, Math.max(1, sourceTable.columns.length));
+    return relationshipRowCenterTopPx(
+        rowIndex,
+        Math.max(1, sourceTable.columns.length),
+    );
+}
+
+/** 지정한 소스 컬럼 행 기준 출발 세로 위치(px). 복합 FK 시 첫 PK 컬럼 id를 넘긴다. */
+export function sourceLineYForSourceColumnRow(
+    sourceTable: DesignModel["tables"][number] | undefined,
+    sourceColumnId: string | undefined,
+): number {
+    if (!sourceTable) return relationshipRowCenterTopPx(0, 1);
+    if (!sourceColumnId) return defaultSourceLineY(sourceTable);
+    const idx = sourceTable.columns.findIndex((c) => c.id === sourceColumnId);
+    const rowIndex = idx >= 0 ? idx : 0;
+    return relationshipRowCenterTopPx(
+        rowIndex,
+        Math.max(1, sourceTable.columns.length),
+    );
 }
 
 function tableTopPx(): number {
@@ -72,10 +94,16 @@ function tableBottomPx(columnCount: number): number {
     );
 }
 
+function groupMembersOrdered(
+    model: DesignModel,
+    groupId: string,
+): RelationshipModel[] {
+    return model.relationships.filter((r) => r.relationshipGroupId === groupId);
+}
+
 /**
  * Target handle for an edge on the target table (FK column only).
- * Each relationship uses its own `targetColumnId` so multiple incoming edges
- * land on the correct FK row, including when the source table has a composite PK.
+ * 복합 FK 그룹은 `primary` 관계의 `targetColumnId`(첫 FK 컬럼)에 맞춘다.
  */
 export function resolveTargetFkHandleId(
     rel: RelationshipModel,
@@ -106,21 +134,92 @@ function resolveRelationshipSides(params: {
     const tgtRight = targetPos.x + tableWidth;
     const overlaps = srcLeft < tgtRight && tgtLeft < srcRight;
 
-    // 테이블이 수평으로 겹치면 source/target 모두 left 핸들을 사용한다.
     if (overlaps) {
         return { sourceSide: "left", targetSide: "left" };
     }
     if (targetPos.x >= sourcePos.x) {
         return { sourceSide: "right", targetSide: "left" };
     }
-    // target이 source의 왼쪽에 있을 때, target.right ~ source.left 사이에
-    // 꺾은선이 들어갈 최소 공간이 확보되면 target 우측으로 도착시킨다.
     const MIN_BEND_SPACE_PX = 16;
     const gap = srcLeft - tgtRight;
     if (gap >= MIN_BEND_SPACE_PX) {
         return { sourceSide: "left", targetSide: "right" };
     }
     return { sourceSide: "left", targetSide: "left" };
+}
+
+function pushEdgeForPrimary(
+    model: DesignModel,
+    primary: RelationshipModel,
+    relationshipIds: string[],
+    nodePositions: Record<string, { x: number; y: number }>,
+    tableWidth: number,
+    revealHiddenLines: boolean,
+    edges: Edge<RelationshipEdgeData>[],
+    options?: {
+        onLinePivotRatioChange?: (
+            relationshipId: string,
+            ratio: number,
+        ) => void;
+        onSourceLineRatioChange?: (
+            relationshipId: string,
+            ratio: number,
+        ) => void;
+    },
+): void {
+    if (!isRelationshipLineRenderable(primary, revealHiddenLines)) {
+        return;
+    }
+    const sourcePos = nodePositions[primary.sourceTableId] ?? { x: 60, y: 60 };
+    const targetPos = nodePositions[primary.targetTableId] ?? { x: 60, y: 60 };
+    const { sourceSide, targetSide } = resolveRelationshipSides({
+        sourcePos,
+        targetPos,
+        tableWidth,
+    });
+    const targetHandle = resolveTargetFkHandleId(primary, model, targetSide);
+    if (!targetHandle) return;
+    const sourceTable = model.tables.find((t) => t.id === primary.sourceTableId);
+    const sourceColumnCount = sourceTable?.columns.length ?? 0;
+    const sourceAnchorMinY = tableTopPx();
+    const sourceAnchorMaxY = tableBottomPx(sourceColumnCount);
+    const sourceSpan = Math.max(1, sourceAnchorMaxY - sourceAnchorMinY);
+    const computedSourceLineY =
+        primary.sourceLineY ??
+        (typeof primary.sourceLineRatio === "number"
+            ? sourceAnchorMinY +
+              (sourceAnchorMaxY - sourceAnchorMinY) * primary.sourceLineRatio
+            : defaultSourceLineY(sourceTable));
+    const edge: Edge<RelationshipEdgeData> = {
+        id: primary.id,
+        source: primary.sourceTableId,
+        target: primary.targetTableId,
+        sourceHandle:
+            sourceSide === "right"
+                ? TABLE_RELATIONSHIP_SOURCE_HANDLE_RIGHT_ID
+                : TABLE_RELATIONSHIP_SOURCE_HANDLE_LEFT_ID,
+        targetHandle,
+        style: {
+            stroke: "#94a3b8",
+            strokeWidth: 1.6,
+        },
+        type: "relationship",
+        data: {
+            relationshipIds,
+            cardinality: primary.cardinality ?? "1:N",
+            sourceLineRatio:
+                typeof primary.sourceLineRatio === "number"
+                    ? primary.sourceLineRatio
+                    : (computedSourceLineY - sourceAnchorMinY) / sourceSpan,
+            sourceLineY: computedSourceLineY,
+            sourceAnchorMinY,
+            sourceAnchorMaxY,
+            linePivotRatio: primary.linePivotRatio,
+            onLinePivotRatioChange: options?.onLinePivotRatioChange,
+            onSourceLineRatioChange: options?.onSourceLineRatioChange,
+        },
+    };
+    edges.push(edge);
 }
 
 export function buildRelationshipFlowEdges(
@@ -140,72 +239,40 @@ export function buildRelationshipFlowEdges(
     },
 ): Edge<RelationshipEdgeData>[] {
     const edges: Edge<RelationshipEdgeData>[] = [];
+    const emittedGroup = new Set<string>();
+
     for (const rel of model.relationships) {
-        if (!isRelationshipLineRenderable(rel, revealHiddenLines)) {
-            continue;
+        const gid = rel.relationshipGroupId;
+        if (gid) {
+            const members = groupMembersOrdered(model, gid);
+            if (members.length > 1) {
+                if (emittedGroup.has(gid)) continue;
+                emittedGroup.add(gid);
+                const primary = members[0];
+                if (!primary) continue;
+                pushEdgeForPrimary(
+                    model,
+                    primary,
+                    members.map((m) => m.id),
+                    nodePositions,
+                    tableWidth,
+                    revealHiddenLines,
+                    edges,
+                    options,
+                );
+                continue;
+            }
         }
-            const sourcePos = nodePositions[rel.sourceTableId] ?? { x: 60, y: 60 };
-            const targetPos = nodePositions[rel.targetTableId] ?? { x: 60, y: 60 };
-            const { sourceSide, targetSide } = resolveRelationshipSides({
-                sourcePos,
-                targetPos,
-                tableWidth,
-            });
-            const targetHandle = resolveTargetFkHandleId(
-                rel,
-                model,
-                targetSide,
-            );
-            if (!targetHandle) continue;
-            const sourceTable = model.tables.find(
-                (t) => t.id === rel.sourceTableId,
-            );
-            const sourceColumnCount = sourceTable?.columns.length ?? 0;
-            const sourceAnchorMinY = tableTopPx();
-            const sourceAnchorMaxY = tableBottomPx(sourceColumnCount);
-            const sourceSpan = Math.max(
-                1,
-                sourceAnchorMaxY - sourceAnchorMinY,
-            );
-            const computedSourceLineY =
-                rel.sourceLineY ??
-                (typeof rel.sourceLineRatio === "number"
-                    ? sourceAnchorMinY +
-                      (sourceAnchorMaxY - sourceAnchorMinY) *
-                          rel.sourceLineRatio
-                    : defaultSourceLineY(sourceTable));
-            const edge: Edge<RelationshipEdgeData> = {
-                id: rel.id,
-                source: rel.sourceTableId,
-                target: rel.targetTableId,
-                sourceHandle:
-                    sourceSide === "right"
-                        ? TABLE_RELATIONSHIP_SOURCE_HANDLE_RIGHT_ID
-                        : TABLE_RELATIONSHIP_SOURCE_HANDLE_LEFT_ID,
-                targetHandle,
-                style: {
-                    stroke: "#94a3b8",
-                    strokeWidth: 1.6,
-                },
-                type: "relationship",
-                data: {
-                    relationshipIds: [rel.id],
-                    cardinality: rel.cardinality ?? "1:N",
-                    sourceLineRatio:
-                        typeof rel.sourceLineRatio === "number"
-                            ? rel.sourceLineRatio
-                            : (computedSourceLineY - sourceAnchorMinY) /
-                              sourceSpan,
-                    sourceLineY: computedSourceLineY,
-                    sourceAnchorMinY,
-                    sourceAnchorMaxY,
-                    linePivotRatio: rel.linePivotRatio,
-                    onLinePivotRatioChange: options?.onLinePivotRatioChange,
-                    onSourceLineRatioChange:
-                        options?.onSourceLineRatioChange,
-                },
-            };
-            edges.push(edge);
+        pushEdgeForPrimary(
+            model,
+            rel,
+            [rel.id],
+            nodePositions,
+            tableWidth,
+            revealHiddenLines,
+            edges,
+            options,
+        );
     }
     return edges;
 }

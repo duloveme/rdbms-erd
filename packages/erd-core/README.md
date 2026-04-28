@@ -108,8 +108,10 @@ const sql = generateDdlForSelection(doc, ["table-users"], {
 - Document lifecycle:
     - `createEmptyDesign`
     - `serializeDesign`, `parseDesign`, `validateDesignDocument`, `roundTripDesign`
-- Type defaults:
-    - `defaultPhysicalType`
+- Type defaults / mapping:
+    - `defaultPhysicalType` (logical → default physical for a dialect)
+    - `inferLogicalTypeFromPhysical` (physical string → logical, dialect-aware)
+    - `convertPhysicalTypeByLogicalType` (reshape physical for `nextDialect` while keeping `logicalType`)
     - `createColumn`
     - `applyLogicalTypeChange`
     - `convertDesignDialect`

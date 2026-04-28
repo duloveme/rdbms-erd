@@ -57,6 +57,16 @@ export const koBundle: Record<I18nKey, string> = {
   "panel.stats.indexCount": "인덱스 수: {{value}}",
   "dialog.newEr.title": "새 ER 정보",
   "dialog.newEr.create": "생성",
+  "dialog.fkCollision.title": "외래 키 컬럼 이름",
+  "dialog.fkCollision.hint":
+    "타깃 테이블에 이미 같은 물리 컬럼명이 있습니다. 물리명을 그대로 두면 해당 컬럼을 FK로 바꾸고, 다른 물리명을 쓰면 새 FK 컬럼이 추가됩니다.",
+  "dialog.fkCollision.sourcePk": "소스 PK",
+  "dialog.fkCollision.fkLogical": "FK 논리명",
+  "dialog.fkCollision.fkPhysical": "FK 물리명",
+  "dialog.fkCollision.error.empty": "논리명과 물리명은 비울 수 없습니다.",
+  "dialog.fkCollision.error.dupWithin":
+    "새 FK 컬럼끼리 물리명이 겹칩니다.",
+  "dialog.fkCollision.confirm": "릴레이션 생성",
   "dialog.confirm.unsaved.title": "저장되지 않은 변경사항이 있습니다.",
   "dialog.confirm.unsaved.newEr": "현재 ER가 수정 중입니다. 계속해서 새 ER를 생성할까요?",
   "dialog.confirm.dialectChange": "DB 종류를 변경하면 컬럼 타입이 바뀔 수 있습니다. 호환 타입으로 변환하고 계속할까요?",

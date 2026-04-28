@@ -59,6 +59,11 @@ export interface RelationshipModel {
     sourceTableId: string;
     /** 참조 대상(FK) 테이블 */
     targetTableId: string;
+    /**
+     * 복합 PK→FK 연결에서 컬럼 쌍마다 관계 레코드는 여러 개 두되,
+     * 동일 값을 가진 관계들은 캔버스에서 한 줄로 묶어 그린다.
+     */
+    relationshipGroupId?: string;
     /** source(PK) 컬럼 id */
     sourceColumnId?: string;
     /** target(FK) 컬럼 id */
@@ -688,7 +693,12 @@ function parseTypeArguments(physicalType: string): number[] | null {
     return values.length > 0 ? values : null;
 }
 
-function convertPhysicalTypeByLogicalType(
+/**
+ * 컬럼의 논리 유형을 유지한 채 기존 물리 타입 문자열을 `nextDialect`에 맞게 변환한다.
+ * `(` `)` 안의 정밀도·스케일·길이 등은 가능한 범위에서 보존하고, 나머지는 `defaultPhysicalType`으로 맞춘다.
+ * `convertDesignDialect`에서 컬럼별 물리 타입을 갱신할 때 사용한다.
+ */
+export function convertPhysicalTypeByLogicalType(
     physicalType: string,
     logicalType: LogicalDataType,
     nextDialect: RdbmsDialect,

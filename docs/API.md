@@ -35,12 +35,13 @@ Client React component (`"use client"`). `ReactFlowProvider` is already wrapped 
 
 - `value?: DesignDocument`
 - `onChange?: (doc: DesignDocument) => void`
-- `onSaveJson?: (doc: DesignDocument) => void`
+- `onSave?: (doc: DesignDocument) => void`
 - `onRequestNewEr?: (currentDialect: RdbmsDialect) => void`
 - `onRequestCreateTable?: (payload: CreateTableRequestPayload) => void`
 - `toolbarSlots?: ToolbarSlots`
 - `toolbarExtra?: React.ReactNode`
 - `showRightPanel?: boolean`
+- `showNewErButton?: boolean` (default `true`)
 - `themeMode?: "light" | "dark"`
 - `defaultThemeMode?: "light" | "dark"` (default `light`)
 - `onThemeModeChange?: (mode: "light" | "dark") => void`

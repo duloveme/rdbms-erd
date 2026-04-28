@@ -514,6 +514,13 @@
   flex: 1;
 }
 
+.erd-dialog-body--table-edit {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .erd-dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -550,6 +557,16 @@
   outline: none;
   border-color: #93c5fd;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.erd-input[data-physical-conflict="true"] {
+  border-color: #fb923c;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.18);
+}
+
+.erd-input[data-physical-conflict="true"]:focus {
+  border-color: #f97316;
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.22);
 }
 
 .erd-btn {
@@ -686,7 +703,9 @@
 .erd-dialog-column-list {
   border: 1px solid var(--erd-border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
   background: var(--erd-surface-muted);
 }
 

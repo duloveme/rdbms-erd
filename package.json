@@ -7,13 +7,17 @@
     ],
     "scripts": {
         "dev": "npm run dev -w apps/playground",
-        "build": "npm run build -w apps/playground",
+        "build:packages": "npm run build -w packages/erd-core && npm run build -w packages/erd-designer",
+        "build": "npm run build:packages && npm run build -w apps/playground",
         "lint": "npm run lint -w apps/playground",
         "test": "vitest run",
-        "release:check": "npm test",
-        "release:version:patch": "npm version patch -w packages/erd-core -w packages/erd-designer",
-        "release:version:minor": "npm version minor -w packages/erd-core -w packages/erd-designer",
-        "release:version:major": "npm version major -w packages/erd-core -w packages/erd-designer",
+        "prepare": "npm run build:packages",
+        "release:check": "npm run build:packages && npm test",
+        "release:preflight": "npm run release:check && npm run release:version:patch && npm run release:sync-core-dep && npm install && npm run release:check && npm run build -w apps/playground && npm pack -w packages/erd-core --dry-run && npm pack -w packages/erd-designer --dry-run",
+        "release:preflight:no-version": "npm run release:check && npm run build -w apps/playground && npm pack -w packages/erd-core --dry-run && npm pack -w packages/erd-designer --dry-run",
+        "release:version:patch": "npm version patch --no-git-tag-version --workspaces-update=false -w packages/erd-core && npm run release:sync-core-dep && npm version patch --no-git-tag-version --workspaces-update=false -w packages/erd-designer",
+        "release:version:minor": "npm version minor --no-git-tag-version --workspaces-update=false -w packages/erd-core && npm run release:sync-core-dep && npm version minor --no-git-tag-version --workspaces-update=false -w packages/erd-designer",
+        "release:version:major": "npm version major --no-git-tag-version --workspaces-update=false -w packages/erd-core && npm run release:sync-core-dep && npm version major --no-git-tag-version --workspaces-update=false -w packages/erd-designer",
         "release:sync-core-dep": "node -e \"const fs=require('fs');const corePath='packages/erd-core/package.json';const desPath='packages/erd-designer/package.json';const core=JSON.parse(fs.readFileSync(corePath,'utf8'));const des=JSON.parse(fs.readFileSync(desPath,'utf8'));des.dependencies['@rdbms-erd/core']=core.version;fs.writeFileSync(desPath,JSON.stringify(des,null,4)+String.fromCharCode(10));\"",
         "release:publish": "npm publish -w packages/erd-core --access public && npm publish -w packages/erd-designer --access public",
         "release:patch": "npm run release:check && npm run release:version:patch && npm run release:sync-core-dep && npm run release:publish",
@@ -21,6 +25,7 @@
         "release:major": "npm run release:check && npm run release:version:major && npm run release:sync-core-dep && npm run release:publish"
     },
     "devDependencies": {
+        "tsup": "^8.5.1",
         "typescript": "6.0.3",
         "vitest": "^3.2.4"
     }

@@ -496,6 +496,86 @@ describe("createDesignerStore + zundo", () => {
         expect(fkTable.columns.some((c) => c.id === "fkcol")).toBe(false);
     });
 
+    it("removeRelationship removes all relationshipGroupId members and FK columns", () => {
+        const useStore = createDesignerStore({ initialDialect: "postgres" });
+        useStore.getState().addTable(
+            {
+                id: "pk",
+                logicalName: "P",
+                physicalName: "TP",
+                columns: [
+                    createColumn("postgres", {
+                        id: "pk1",
+                        logicalName: "a",
+                        logicalType: "NUMBER",
+                        nullable: false,
+                        isPrimaryKey: true,
+                    }),
+                    createColumn("postgres", {
+                        id: "pk2",
+                        logicalName: "b",
+                        logicalType: "NUMBER",
+                        nullable: false,
+                        isPrimaryKey: true,
+                    }),
+                ],
+            },
+            0,
+            0,
+        );
+        useStore.getState().addTable(
+            {
+                id: "fk",
+                logicalName: "F",
+                physicalName: "TF",
+                columns: [
+                    createColumn("postgres", {
+                        id: "f1",
+                        logicalName: "a",
+                        logicalType: "NUMBER",
+                        isForeignKey: true,
+                        referencesPrimaryColumnId: "pk1",
+                    }),
+                    createColumn("postgres", {
+                        id: "f2",
+                        logicalName: "b",
+                        logicalType: "NUMBER",
+                        isForeignKey: true,
+                        referencesPrimaryColumnId: "pk2",
+                    }),
+                ],
+            },
+            100,
+            0,
+        );
+        useStore.getState().addRelationship({
+            id: "r1",
+            sourceTableId: "pk",
+            targetTableId: "fk",
+            relationshipGroupId: "g1",
+            sourceColumnId: "pk1",
+            targetColumnId: "f1",
+            autoCreatedTargetColumn: true,
+            originPkColumnId: "pk1",
+        });
+        useStore.getState().addRelationship({
+            id: "r2",
+            sourceTableId: "pk",
+            targetTableId: "fk",
+            relationshipGroupId: "g1",
+            sourceColumnId: "pk2",
+            targetColumnId: "f2",
+            autoCreatedTargetColumn: true,
+            originPkColumnId: "pk2",
+        });
+        useStore.getState().removeRelationship("r1");
+        expect(useStore.getState().doc.model.relationships).toHaveLength(0);
+        const fk = useStore.getState().doc.model.tables.find((t) => t.id === "fk")!;
+        expect(fk.columns.some((c) => c.id === "f1" || c.id === "f2")).toBe(
+            false,
+        );
+    });
+
     it("setColumnLogicalType uses host adapter default physical type", () => {
         const adapter = createAcmeAdapter();
         const useStore = createDesignerStore({

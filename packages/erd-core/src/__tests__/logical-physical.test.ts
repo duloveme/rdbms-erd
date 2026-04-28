@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
     applyLogicalTypeChange,
     convertDesignDialect,
+    convertPhysicalTypeByLogicalType,
     createColumn,
     createEmptyDesign,
     defaultPhysicalType,
@@ -106,5 +107,19 @@ describe("logical / physical types", () => {
     expect(inferLogicalTypeFromPhysical("mssql", "BIT")).toBe("BOOLEAN");
     expect(inferLogicalTypeFromPhysical("postgres", "INTEGER")).toBe("NUMBER");
     expect(inferLogicalTypeFromPhysical("postgres", "VARCHAR(255)")).toBe("TEXT");
+  });
+
+  it("convertPhysicalTypeByLogicalType matches convertDesignDialect column mapping", () => {
+    const physical = "NUMERIC(10,5)";
+    const logical = "NUMBER" as const;
+    expect(convertPhysicalTypeByLogicalType(physical, logical, "oracle")).toBe(
+      "NUMBER(10,5)",
+    );
+    expect(convertPhysicalTypeByLogicalType(physical, logical, "postgres")).toBe(
+      "NUMERIC(10,5)",
+    );
+    expect(
+      convertPhysicalTypeByLogicalType("VARCHAR(120)", "TEXT", "mssql"),
+    ).toBe("NVARCHAR(120)");
   });
 });

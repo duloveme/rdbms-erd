@@ -57,6 +57,16 @@ export const enBundle: Record<I18nKey, string> = {
   "panel.stats.indexCount": "Indexes: {{value}}",
   "dialog.newEr.title": "New ER",
   "dialog.newEr.create": "Create",
+  "dialog.fkCollision.title": "Foreign key column names",
+  "dialog.fkCollision.hint":
+    "The target table already uses one or more of the proposed physical names. Keep the same physical name to convert that column into an FK; use a new physical name to add a separate FK column.",
+  "dialog.fkCollision.sourcePk": "Source PK",
+  "dialog.fkCollision.fkLogical": "FK logical name",
+  "dialog.fkCollision.fkPhysical": "FK physical name",
+  "dialog.fkCollision.error.empty": "Logical and physical names must be non-empty.",
+  "dialog.fkCollision.error.dupWithin":
+    "Duplicate physical names between the new FK columns.",
+  "dialog.fkCollision.confirm": "Create relationship",
   "dialog.confirm.unsaved.title": "You have unsaved changes.",
   "dialog.confirm.unsaved.newEr": "Current ER has unsaved changes. Continue and create a new ER?",
   "dialog.confirm.dialectChange": "Changing the DB type may alter column types. Continue and convert to compatible types?",

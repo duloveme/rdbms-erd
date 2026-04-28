@@ -315,7 +315,7 @@ export function TableEditDialog({
     return (
         <div className="erd-dialog-backdrop" role="presentation">
             <div
-                className="erd-dialog"
+                className="erd-dialog erd-dialog--table-edit"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="erd-table-dialog-title"
@@ -347,7 +347,7 @@ export function TableEditDialog({
                         </button>
                     </div>
                 </div>
-                <div className="erd-dialog-body">
+                <div className="erd-dialog-body erd-dialog-body--table-edit">
                     <div className="erd-field">
                         <div
                             style={{

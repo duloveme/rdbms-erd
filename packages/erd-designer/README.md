@@ -9,6 +9,12 @@ It uses `@xyflow/react` internally and is intended to be used with `@rdbms-erd/c
 npm i @rdbms-erd/designer @rdbms-erd/core
 ```
 
+`DesignDocument` 및 `createEmptyDesign` / `serializeDesign` / `parseDesign` 등은 **`@rdbms-erd/core`에 정의**되어 있으며, 편의를 위해 **`@rdbms-erd/designer`에서도 동일 심볼을 재export**합니다.
+
+**Logical / physical type mapping** (also re-exported from this package): `LOGICAL_DATA_TYPES`, type `LogicalDataType`, `inferLogicalTypeFromPhysical` (physical string → logical for a dialect), `defaultPhysicalType` (logical → default physical), `convertPhysicalTypeByLogicalType` (keep logical + reshape physical for another dialect), `applyLogicalTypeChange`, `convertDesignDialect`, `createColumn`.
+
+Other core APIs (DDL, diagnostics, metadata helpers, etc.) should still be imported from `@rdbms-erd/core`.
+
 Peer dependencies:
 
 - `react`
@@ -19,8 +25,11 @@ Peer dependencies:
 ```tsx
 "use client";
 
-import { createEmptyDesign, type DesignDocument } from "@rdbms-erd/core";
-import { ERDDesigner } from "@rdbms-erd/designer";
+import {
+    createEmptyDesign,
+    ERDDesigner,
+    type DesignDocument,
+} from "@rdbms-erd/designer";
 import { useState } from "react";
 
 export default function Page() {
@@ -45,7 +54,7 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
 - Document:
     - `value?: DesignDocument`
     - `onChange?: (doc: DesignDocument) => void`
-    - `onSaveJson?: (doc: DesignDocument) => void`
+    - `onSave?: (doc: DesignDocument) => void`
 - Workflow callbacks:
     - `onRequestNewEr?: (currentDialect: RdbmsDialect) => void`
     - `onRequestCreateTable?: (payload: CreateTableRequestPayload) => void`
@@ -54,6 +63,7 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
     - `translations?: Partial<Record<I18nKey, string>>`
     - `t?: (key: I18nKey, vars?: I18nVars) => string`
     - `showRightPanel?: boolean`
+    - `showNewErButton?: boolean` (default `true`, toolbar "New ER")
     - `tableWidth?: number` (default `400`)
     - `revealHiddenRelationshipLines?: boolean`
     - `defaultRevealHiddenRelationshipLines?: boolean`
@@ -63,8 +73,13 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
     - `defaultThemeMode?: "light" | "dark"`
     - `onThemeModeChange?: (mode: "light" | "dark") => void`
 - Toolbar extension:
-    - `toolbarSlots?: ToolbarSlots`
     - `toolbarExtra?: React.ReactNode`
+
+## Next.js (Webpack / Turbopack)
+
+Published builds expose **compiled ESM** under `dist/`. Importing `ERDDesigner` pulls in `@xyflow/react` styles and bundled designer tokens via `import './index.css'` inside the package entry, so **no extra CSS import is required** for the default chrome.
+
+Optional: `import "@rdbms-erd/designer/designer.css"` resolves to the same token stylesheet if you need an explicit side-effect import (e.g. SSR split). You may still set `transpilePackages: ["@rdbms-erd/designer", "@rdbms-erd/core"]` when targeting older JS output.
 
 ## DB Extension Props (JSON + optional hook)
 
