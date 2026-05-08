@@ -16,6 +16,8 @@
   --erd-shadow-lg: 0 10px 40px rgba(15, 23, 42, 0.12);
   --erd-handle: #94a3b8;
   --erd-handle-active: #2563eb;
+  --erd-canvas-bg: #f8fafc;
+  --erd-canvas-grid: #dbe7f3;
   color: var(--erd-text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
 }
@@ -35,16 +37,18 @@
   --erd-handle-active: #60a5fa;
   --erd-shadow: 0 1px 3px rgba(2, 6, 23, 0.45);
   --erd-shadow-lg: 0 10px 40px rgba(2, 6, 23, 0.65);
+  --erd-canvas-bg: #020617;
+  --erd-canvas-grid: #1e293b;
 }
 
-/* React Flow canvas/chrome dark mode */
-.erd-root--dark .react-flow,
-.erd-root--dark .react-flow__pane {
-  background: #020617;
+/* React Flow canvas/chrome */
+.erd-root .react-flow,
+.erd-root .react-flow__pane {
+  background: var(--erd-canvas-bg);
 }
 
-.erd-root--dark .react-flow__background path {
-  stroke: #1e293b;
+.erd-root .react-flow__background path {
+  stroke: var(--erd-canvas-grid);
 }
 
 .erd-root--dark .react-flow__controls {
@@ -464,6 +468,7 @@
 .erd-dialog {
   /* 컬럼 설명 열 확대로 인해 다이얼로그 폭 확장 */
   width: min(920px, 100%);
+  height: min(88vh, 720px);
   max-height: min(88vh, 720px);
   overflow: hidden;
   display: flex;
@@ -514,6 +519,24 @@
   flex: 1;
 }
 
+.erd-dialog--new-er {
+  height: auto;
+  max-height: min(72vh, 560px);
+}
+
+.erd-dialog-body--new-er {
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.erd-new-er-field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--erd-text-muted);
+}
+
 .erd-dialog-body--table-edit {
   display: flex;
   flex-direction: column;
@@ -550,6 +573,29 @@
   border: 1px solid var(--erd-border);
   border-radius: 8px;
   font-size: 13px;
+  background: var(--erd-surface);
+  color: var(--erd-text);
+  caret-color: var(--erd-text);
+  line-height: 1.3;
+  font-family: inherit;
+}
+
+.erd-input::placeholder,
+.erd-select::placeholder {
+  color: var(--erd-text-muted);
+  opacity: 0.85;
+}
+
+.erd-root input.erd-input,
+.erd-root select.erd-select {
+  height: 36px;
+  min-height: 36px;
+}
+
+.erd-root textarea.erd-input {
+  min-height: 90px;
+  resize: vertical;
+  line-height: 1.35;
 }
 
 .erd-input:focus,

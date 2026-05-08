@@ -685,7 +685,13 @@ const TableNode = memo(function TableNode({
         relationshipEndpointHighlight,
     } = data;
     const columnSignature = useMemo(
-        () => table.columns.map((c) => c.id).join("|"),
+        () =>
+            table.columns
+                .map(
+                    (c) =>
+                        `${c.id}:${c.isForeignKey ? 1 : 0}:${c.referencesPrimaryColumnId ?? ""}`,
+                )
+                .join("|"),
         [table.columns],
     );
     useEffect(() => {
@@ -3777,7 +3783,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 {newErDialogOpen ? (
                     <div className="erd-dialog-backdrop" role="presentation">
                         <div
-                            className="erd-dialog"
+                            className="erd-dialog erd-dialog--new-er"
                             role="dialog"
                             aria-modal="true"
                             aria-labelledby="erd-new-dialog-title"
@@ -3789,17 +3795,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 </span>
                             </div>
                             <div
-                                className="erd-dialog-body"
-                                style={{ display: "grid", gap: 12 }}
+                                className="erd-dialog-body erd-dialog-body--new-er"
                             >
-                                <label
-                                    style={{
-                                        display: "grid",
-                                        gap: 4,
-                                        fontSize: 12,
-                                        color: "#475569",
-                                    }}
-                                >
+                                <label className="erd-new-er-field">
                                     {t("panel.projectName")}
                                     <input
                                         className="erd-input"
@@ -3812,14 +3810,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                         }
                                     />
                                 </label>
-                                <label
-                                    style={{
-                                        display: "grid",
-                                        gap: 4,
-                                        fontSize: 12,
-                                        color: "#475569",
-                                    }}
-                                >
+                                <label className="erd-new-er-field">
                                     {t("panel.projectDescription")}
                                     <textarea
                                         className="erd-input"
@@ -3834,14 +3825,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                         style={{ minHeight: 90 }}
                                     />
                                 </label>
-                                <label
-                                    style={{
-                                        display: "grid",
-                                        gap: 4,
-                                        fontSize: 12,
-                                        color: "#475569",
-                                    }}
-                                >
+                                <label className="erd-new-er-field">
                                     {t("panel.rdbmsType")}
                                     <select
                                         className="erd-select"
