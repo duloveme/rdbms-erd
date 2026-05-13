@@ -69,6 +69,9 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
     - `defaultRevealHiddenRelationshipLines?: boolean`
     - `onRevealHiddenRelationshipLinesChange?: (reveal: boolean) => void`
     - `elevateSelectedRelationships?: boolean` (default `false`)
+    - `layoutLocked?: boolean`
+    - `defaultLayoutLocked?: boolean`
+    - `onLayoutLockedChange?: (locked: boolean) => void`
     - `themeMode?: "light" | "dark"`
     - `defaultThemeMode?: "light" | "dark"`
     - `onThemeModeChange?: (mode: "light" | "dark") => void`

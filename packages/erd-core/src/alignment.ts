@@ -15,7 +15,8 @@ export type AlignCommand =
 export function alignNodePositions(
   selectedIds: string[],
   positions: Record<string, { x: number; y: number }>,
-  command: AlignCommand
+  command: AlignCommand,
+  anchorId?: string
 ): Record<string, { x: number; y: number }> {
   const entries = selectedIds
     .map((id) => {
@@ -36,6 +37,11 @@ export function alignNodePositions(
   const maxY = Math.max(...ys);
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
+  const anchorPos = anchorId
+    ? entries.find((e) => e.id === anchorId)?.pos
+    : undefined;
+  const targetX = anchorPos?.x ?? centerX;
+  const targetY = anchorPos?.y ?? centerY;
 
   const sortByX = [...entries].sort((a, b) => a.pos.x - b.pos.x);
   const sortByY = [...entries].sort((a, b) => a.pos.y - b.pos.y);
@@ -44,12 +50,12 @@ export function alignNodePositions(
 
   for (const e of entries) {
     const next = { ...e.pos };
-    if (command === "left") next.x = minX;
-    if (command === "h-center") next.x = centerX;
-    if (command === "right") next.x = maxX;
-    if (command === "top") next.y = minY;
-    if (command === "v-center") next.y = centerY;
-    if (command === "bottom") next.y = maxY;
+    if (command === "left") next.x = anchorPos ? targetX : minX;
+    if (command === "h-center") next.x = targetX;
+    if (command === "right") next.x = anchorPos ? targetX : maxX;
+    if (command === "top") next.y = anchorPos ? targetY : minY;
+    if (command === "v-center") next.y = targetY;
+    if (command === "bottom") next.y = anchorPos ? targetY : maxY;
     out[e.id] = next;
   }
 

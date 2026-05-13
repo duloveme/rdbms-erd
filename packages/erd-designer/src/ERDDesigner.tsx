@@ -62,6 +62,8 @@ import {
     FileImage,
     KeyRound,
     Link2,
+    Lock,
+    LockOpen,
     Pencil,
     Menu,
     Moon,
@@ -139,6 +141,8 @@ interface TableNodeData extends Record<string, unknown> {
     onEditTable: (tableId: string) => void;
     /** 선택된 관계선의 양끝 테이블 강조(테이블 선택과 별개) */
     relationshipEndpointHighlight?: boolean;
+    /** 다중 정렬 시 기준(anchor) 테이블 강조 */
+    alignAnchor?: boolean;
 }
 
 type ClipboardTableBundle = {
@@ -713,6 +717,7 @@ const TableNode = memo(function TableNode({
         "erd-node-card",
         selected ? "erd-node-card--selected" : "",
         relationshipEndpointHighlight ? "erd-node-card--rel-endpoint" : "",
+        data.alignAnchor ? "erd-node-card--align-anchor" : "",
     ]
         .filter(Boolean)
         .join(" ");
@@ -964,6 +969,11 @@ export interface ERDDesignerProps {
     onRevealHiddenRelationshipLinesChange?: (reveal: boolean) => void;
     /** 선택된 관계선을 노드보다 앞으로 올릴지 여부. 기본 false. */
     elevateSelectedRelationships?: boolean;
+    /** 캔버스 레이아웃 편집 잠금(기본 false). true면 테이블 수정만 허용. */
+    layoutLocked?: boolean;
+    /** 비제어 모드일 때 레이아웃 잠금 초기값. 기본 false. */
+    defaultLayoutLocked?: boolean;
+    onLayoutLockedChange?: (locked: boolean) => void;
     /** UI locale for built-in bundles (`ko*`, otherwise `en`). Ignored when `t` is set. */
     locale?: string;
     /** Overrides on top of the locale bundle (hybrid i18n). */
@@ -1012,6 +1022,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             defaultRevealHiddenRelationshipLines = false,
             onRevealHiddenRelationshipLinesChange,
             elevateSelectedRelationships = false,
+            layoutLocked: layoutLockedProp,
+            defaultLayoutLocked = false,
+            onLayoutLockedChange,
             showRightPanel = false,
             showNewErButton = true,
             themeMode: themeModeProp,
@@ -1065,6 +1078,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
         const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
+        const [alignAnchorTableId, setAlignAnchorTableId] = useState<
+            string | null
+        >(null);
         const [relationshipCardinalityMode, setRelationshipCardinalityMode] =
             useState<RelationshipModel["cardinality"]>("1:N");
         const [relationshipCreateMode, setRelationshipCreateMode] =
@@ -1099,6 +1115,20 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 onRevealHiddenRelationshipLinesChange?.(next);
             },
             [revealControlled, onRevealHiddenRelationshipLinesChange],
+        );
+        const layoutLockControlled = layoutLockedProp !== undefined;
+        const [layoutLockedInternal, setLayoutLockedInternal] = useState(
+            defaultLayoutLocked,
+        );
+        const layoutLocked = layoutLockControlled
+            ? layoutLockedProp
+            : layoutLockedInternal;
+        const setLayoutLocked = useCallback(
+            (next: boolean) => {
+                if (!layoutLockControlled) setLayoutLockedInternal(next);
+                onLayoutLockedChange?.(next);
+            },
+            [layoutLockControlled, onLayoutLockedChange],
         );
 
         const [edgeContextMenu, setEdgeContextMenu] = useState<{
@@ -1135,6 +1165,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const [fkCollisionErrorKey, setFkCollisionErrorKey] = useState<
             "empty" | "dupWithin" | null
         >(null);
+        const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
+            tableIds: string[];
+            relationshipIds: string[];
+        } | null>(null);
         const [newErDraft, setNewErDraft] = useState<{
             projectName: string;
             projectDescription: string;
@@ -1157,6 +1191,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             tableId: string;
             handleId?: string | null;
         } | null>(null);
+        const pendingAlignAnchorRef = useRef<string | null>(null);
         const canvasRootRef = useRef<HTMLDivElement | null>(null);
         const edgeContextMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -1342,6 +1377,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         onEditTable,
                         relationshipEndpointHighlight:
                             relationshipEndpointTableIds.has(table.id),
+                        alignAnchor: alignAnchorTableId === table.id,
                     },
                 })),
             [
@@ -1352,6 +1388,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 largeDiagram,
                 onEditTable,
                 relationshipEndpointTableIds,
+                alignAnchorTableId,
                 tableWidth,
             ],
         );
@@ -1413,15 +1450,19 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     };
                 });
             });
-            setEdges((prev) => {
-                const prevById = new Map(prev.map((e) => [e.id, e]));
-                return flowEdgesRef.current.map((next) => {
-                    const old = prevById.get(next.id);
-                    return {
-                        ...old,
-                        ...next,
-                        selected: old?.selected ?? false,
-                    };
+            // 문서 교체(Load test ER) 직후에는 노드 핸들이 먼저 mount된 다음
+            // 엣지를 반영하도록 한 프레임 지연해 React Flow handle-miss 경고를 줄인다.
+            requestAnimationFrame(() => {
+                setEdges((prev) => {
+                    const prevById = new Map(prev.map((e) => [e.id, e]));
+                    return flowEdgesRef.current.map((next) => {
+                        const old = prevById.get(next.id);
+                        return {
+                            ...old,
+                            ...next,
+                            selected: old?.selected ?? false,
+                        };
+                    });
                 });
             });
             if (pendingFitFromValueRef.current) {
@@ -1510,7 +1551,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             const routingTypeChanged =
                                 prevLiveSignature !== undefined &&
                                 prevLiveSignature !== nextSignature;
-                            if (routingTypeChanged) {
+                            if (routingTypeChanged && !layoutLocked) {
                                 // 이동 중 유형이 바뀌면 즉시 x(linePivotRatio)를 무효화한다.
                                 setRelationshipLinePivotRatio(
                                     nextEdge.id,
@@ -1625,12 +1666,22 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 const next = `${nSig}|${eSig}`;
                 if (next === selectionSigRef.current) return;
                 selectionSigRef.current = next;
-                setSelectedNodeIds(params.nodes.map((n) => n.id));
-                setSelectedEdgeIds(params.edges.map((e) => e.id));
-                if (params.edges.length > 0) {
-                    setElevatedEdgeIds(params.edges.map((e) => e.id));
+                const nodeIds = params.nodes.map((n) => n.id);
+                const edgeIds = params.edges.map((e) => e.id);
+                const keepEdgesSelected = nodeIds.length === 0;
+                setSelectedNodeIds(nodeIds);
+                setSelectedEdgeIds(keepEdgesSelected ? edgeIds : []);
+                if (keepEdgesSelected && edgeIds.length > 0) {
+                    setElevatedEdgeIds(edgeIds);
                 } else {
                     setElevatedEdgeIds([]);
+                }
+                if (!keepEdgesSelected && edgeIds.length > 0) {
+                    setEdges((prev) =>
+                        prev.map((edge) =>
+                            edge.selected ? { ...edge, selected: false } : edge,
+                        ),
+                    );
                 }
                 if (selectionDragArmed) {
                     setSelectionDragArmed(false);
@@ -1664,6 +1715,23 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 }),
             );
         }, [relationshipEndpointTableIds]);
+
+        useEffect(() => {
+            setNodes((prev) =>
+                prev.map((node) => {
+                    const data = node.data as TableNodeData;
+                    const isAnchor = alignAnchorTableId === node.id;
+                    if (data.alignAnchor === isAnchor) return node;
+                    return {
+                        ...node,
+                        data: {
+                            ...data,
+                            alignAnchor: isAnchor,
+                        },
+                    };
+                }),
+            );
+        }, [alignAnchorTableId]);
 
         const onEdgeContextMenu = useCallback<EdgeMouseHandler<Edge>>(
             (event, edge) => {
@@ -2049,25 +2117,77 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const onConnect = useCallback(
             (connection: Connection) => {
+                if (layoutLocked) return;
                 if (!hasDesign) return;
                 if (!connection.source || !connection.target) return;
                 connectWithForeignKey(connection.source, connection.target);
                 pendingConnectSourceRef.current = null;
             },
-            [connectWithForeignKey, hasDesign],
+            [connectWithForeignKey, hasDesign, layoutLocked],
         );
 
         const onNodeClickInCanvas = useCallback(
-            (_event: unknown, node: Node) => {
+            (event: React.MouseEvent, node: Node) => {
                 setElevatedEdgeIds([]);
+                const additiveMultiSelect = event.ctrlKey || event.metaKey;
+                if (additiveMultiSelect) {
+                    // Ctrl/Cmd+click 다중 선택에서는 마지막 클릭 노드를 기준(anchor)으로 본다.
+                    pendingAlignAnchorRef.current = node.id;
+                    setAlignAnchorTableId(node.id);
+                } else {
+                    pendingAlignAnchorRef.current = null;
+                }
+                if (
+                    selectedNodeIds.length > 1 &&
+                    selectedNodeIds.includes(node.id)
+                ) {
+                    setAlignAnchorTableId(node.id);
+                } else if (alignAnchorTableId === node.id) {
+                    setAlignAnchorTableId(null);
+                }
+                if (layoutLocked) return;
                 if (!relationshipCreateMode || !hasDesign) return;
                 setRelationshipCreateSelection((prev) => {
                     if (prev.includes(node.id)) return prev;
                     return [...prev, node.id];
                 });
             },
-            [hasDesign, relationshipCreateMode],
+            [
+                alignAnchorTableId,
+                hasDesign,
+                layoutLocked,
+                relationshipCreateMode,
+                selectedNodeIds,
+            ],
         );
+
+        useEffect(() => {
+            if (selectedNodeIds.length === 0) {
+                pendingAlignAnchorRef.current = null;
+                if (alignAnchorTableId !== null) setAlignAnchorTableId(null);
+                return;
+            }
+            if (selectedNodeIds.length === 1) {
+                if (alignAnchorTableId !== null) setAlignAnchorTableId(null);
+                return;
+            }
+            const pendingAnchor = pendingAlignAnchorRef.current;
+            if (pendingAnchor && selectedNodeIds.includes(pendingAnchor)) {
+                pendingAlignAnchorRef.current = null;
+                if (alignAnchorTableId !== pendingAnchor) {
+                    setAlignAnchorTableId(pendingAnchor);
+                }
+                return;
+            }
+            if (
+                alignAnchorTableId &&
+                selectedNodeIds.includes(alignAnchorTableId)
+            ) {
+                return;
+            }
+            // 멀티/드래그 선택 직후 anchor가 없으면 선택 집합의 첫 노드를 기준으로 잡는다.
+            setAlignAnchorTableId(selectedNodeIds[0] ?? null);
+        }, [alignAnchorTableId, selectedNodeIds]);
 
         useEffect(() => {
             if (!relationshipCreateMode) return;
@@ -2086,6 +2206,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const onConnectStart = useCallback<OnConnectStart>(
             (_event, params) => {
+                if (layoutLocked) {
+                    pendingConnectSourceRef.current = null;
+                    return;
+                }
                 if (selectionDragArmed) {
                     setSelectionDragArmed(false);
                 }
@@ -2102,11 +2226,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     handleId: params.handleId,
                 };
             },
-            [hasDesign, selectionDragArmed],
+            [hasDesign, layoutLocked, selectionDragArmed],
         );
 
         const onNodeDragStop = useCallback(
             (_: unknown, node: Node) => {
+                if (layoutLocked) return;
                 if (!hasDesign) return;
                 const selectedIds = new Set(selectedNodeIds);
                 if (selectedIds.size <= 1 || !selectedIds.has(node.id)) {
@@ -2122,27 +2247,104 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 }
                 setNodePositions(movedPositions);
             },
-            [hasDesign, selectedNodeIds, setNodePosition, setNodePositions],
+            [
+                hasDesign,
+                layoutLocked,
+                selectedNodeIds,
+                setNodePosition,
+                setNodePositions,
+            ],
+        );
+
+        const executeDeleteSelection = useCallback(
+            (
+                tableIds: string[],
+                relationshipIds: string[],
+                removeFkColumnsWithRelationship: boolean,
+            ) => {
+                deleteSelectionFromDoc(tableIds, relationshipIds, {
+                    removeFkColumnsWithRelationship,
+                });
+                setSelectedEdgeIds([]);
+                setSelectedNodeIds([]);
+                setAlignAnchorTableId(null);
+            },
+            [deleteSelectionFromDoc],
+        );
+
+        const requestDeleteSelection = useCallback(
+            (tableIds: string[], relationshipIds: string[]) => {
+                if (!hasDesign || layoutLocked) return;
+                if (tableIds.length === 0 && relationshipIds.length === 0) {
+                    return;
+                }
+                const hasRelationshipsFromTables =
+                    tableIds.length > 0 &&
+                    doc.model.relationships.some(
+                        (rel) =>
+                            tableIds.includes(rel.sourceTableId) ||
+                            tableIds.includes(rel.targetTableId),
+                    );
+                if (relationshipIds.length > 0 || hasRelationshipsFromTables) {
+                    setDeleteConfirmDialog({ tableIds, relationshipIds });
+                    return;
+                }
+                executeDeleteSelection(tableIds, relationshipIds, true);
+            },
+            [
+                doc.model.relationships,
+                executeDeleteSelection,
+                hasDesign,
+                layoutLocked,
+            ],
         );
 
         /** Deletes selected relationship edges and tables in one store action (single undo step). */
         const deleteSelectedSelection = useCallback(() => {
-            if (!hasDesign) return;
+            if (!hasDesign || layoutLocked) return;
             if (selectedEdgeIds.length === 0 && selectedNodeIds.length === 0)
                 return;
             const relationshipIds = selectedEdgeIds.filter((id) =>
                 doc.model.relationships.some((rel) => rel.id === id),
             );
-            deleteSelectionFromDoc(selectedNodeIds, relationshipIds);
-            setSelectedEdgeIds([]);
-            setSelectedNodeIds([]);
+            requestDeleteSelection(selectedNodeIds, relationshipIds);
         }, [
             hasDesign,
-            deleteSelectionFromDoc,
+            layoutLocked,
             doc.model.relationships,
+            requestDeleteSelection,
             selectedEdgeIds,
             selectedNodeIds,
         ]);
+
+        useEffect(() => {
+            if (!deleteConfirmDialog) return;
+            const validRelationships = deleteConfirmDialog.relationshipIds.filter(
+                (id) => doc.model.relationships.some((rel) => rel.id === id),
+            );
+            if (validRelationships.length === deleteConfirmDialog.relationshipIds.length) {
+                return;
+            }
+            if (
+                validRelationships.length === 0 &&
+                deleteConfirmDialog.tableIds.length === 0
+            ) {
+                setDeleteConfirmDialog(null);
+                return;
+            }
+            setDeleteConfirmDialog({
+                tableIds: deleteConfirmDialog.tableIds,
+                relationshipIds: validRelationships,
+            });
+        }, [deleteConfirmDialog, doc.model.relationships]);
+
+        useEffect(() => {
+            if (!layoutLocked) return;
+            setDeleteConfirmDialog(null);
+            setEdgeContextMenu(null);
+            setRelationshipCreateMode(false);
+            setRelationshipCreateSelection([]);
+        }, [layoutLocked]);
 
         useEffect(() => {
             const onKeyDown = (e: KeyboardEvent) => {
@@ -2155,6 +2357,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     tag === "TEXTAREA" ||
                     tag === "SELECT";
                 if (editable) return;
+                if (layoutLocked) return;
                 if (
                     selectedNodeIds.length === 0 &&
                     selectedEdgeIds.length === 0
@@ -2167,6 +2370,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             return () => window.removeEventListener("keydown", onKeyDown);
         }, [
             deleteSelectedSelection,
+            layoutLocked,
             selectedEdgeIds.length,
             selectedNodeIds.length,
         ]);
@@ -2188,7 +2392,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
 
         const runAlign = (type: AlignType) => {
-            alignSelected(selectedNodeIds, type);
+            if (layoutLocked) return;
+            alignSelected(selectedNodeIds, type, alignAnchorTableId ?? undefined);
         };
         const focusTableOnCanvas = useCallback(
             (tableId: string) => {
@@ -2248,6 +2453,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         }, [newErDraft, setDoc, useDesignerStore.temporal]);
 
         const toolbarDisabled = !hasDesign;
+        const layoutEditDisabled = toolbarDisabled || layoutLocked;
         const isDirty = hasDesign && serializeDesign(doc) !== savedSignature;
         const temporalStore = useDesignerStore.temporal;
         const pastCount = useStore(temporalStore, (s) => s.pastStates.length);
@@ -2264,6 +2470,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const onConnectEnd = useCallback<OnConnectEnd>(
             (event, connectionState) => {
+                if (layoutLocked) {
+                    pendingConnectSourceRef.current = null;
+                    return;
+                }
                 if (!connectionState.fromHandle || connectionState.toNode) {
                     pendingConnectSourceRef.current = null;
                     return;
@@ -2324,6 +2534,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 connectWithForeignKey,
                 doc.model.tables,
                 hasDesign,
+                layoutLocked,
                 onRequestCreateTable,
                 openCreateTableDialogFromRequest,
             ],
@@ -2385,7 +2596,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         ]);
 
         const pasteTablesFromClipboard = useCallback(async () => {
-            if (!hasDesign) return;
+            if (!hasDesign || layoutLocked) return;
             let raw = "";
             try {
                 raw = await navigator.clipboard.readText();
@@ -2468,7 +2679,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             }
             setSelectedNodeIds(pastedTableIds);
             setSelectedEdgeIds([]);
-        }, [addRelationship, addTable, hasDesign]);
+        }, [addRelationship, addTable, hasDesign, layoutLocked]);
 
         const exportCanvasBlob = useCallback(async (): Promise<Blob | null> => {
             const host = canvasRootRef.current;
@@ -2624,6 +2835,26 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         >
                             <FileCode size={16} />
                         </button>
+                        <button
+                            type="button"
+                            className={`erd-toolbar-btn${layoutLocked ? " erd-toolbar-btn--active" : ""}`}
+                            title={
+                                layoutLocked
+                                    ? t("toolbar.layoutLock.off")
+                                    : t("toolbar.layoutLock.on")
+                            }
+                            aria-pressed={layoutLocked}
+                            onClick={() =>
+                                setLayoutLocked(!layoutLocked)
+                            }
+                            disabled={toolbarDisabled}
+                        >
+                            {layoutLocked ? (
+                                <Lock size={16} />
+                            ) : (
+                                <LockOpen size={16} />
+                            )}
+                        </button>
                     </div>
                     <span className="erd-toolbar-sep" />
                     <div className="erd-toolbar-group">
@@ -2632,7 +2863,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.addTable")}
                             onClick={openCreateTableDialog}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <Table2 size={16} />
                         </button>
@@ -2642,8 +2873,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             title={t("toolbar.deleteSelection")}
                             aria-label={t("toolbar.deleteSelection")}
                             disabled={
-                                selectedNodeIds.length === 0 &&
-                                selectedEdgeIds.length === 0
+                                layoutEditDisabled ||
+                                (selectedNodeIds.length === 0 &&
+                                    selectedEdgeIds.length === 0)
                             }
                             onClick={deleteSelectedSelection}
                         >
@@ -2660,7 +2892,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             }
                             aria-pressed={relationshipCardinalityMode === "1:1"}
                             title={t("toolbar.cardinality.oneToOne")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             {t("toolbar.cardinality.oneToOne")}
                         </button>
@@ -2672,7 +2904,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             }
                             aria-pressed={relationshipCardinalityMode === "1:N"}
                             title={t("toolbar.cardinality.oneToMany")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             {t("toolbar.cardinality.oneToMany")}
                         </button>
@@ -2681,7 +2913,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className={`erd-toolbar-btn${relationshipCreateMode ? " erd-toolbar-btn--active" : ""}`}
                             aria-pressed={relationshipCreateMode}
                             title={t("toolbar.relationshipMode")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                             onClick={() => {
                                 setRelationshipCreateMode((prev) => {
                                     const next = !prev;
@@ -2770,7 +3002,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             onClick={() =>
                                 setSelectionDragArmed((prev) => !prev)
                             }
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <SquareDashedMousePointer size={16} />
                         </button>
@@ -2790,7 +3022,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.pasteTables")}
                             onClick={() => void pasteTablesFromClipboard()}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <ClipboardPaste size={16} />
                         </button>
@@ -2824,7 +3056,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.left")}
                             onClick={() => runAlign("left")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignHorizontalJustifyStart size={16} />
                         </button>
@@ -2833,7 +3065,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.hCenter")}
                             onClick={() => runAlign("h-center")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignHorizontalJustifyCenter size={16} />
                         </button>
@@ -2842,7 +3074,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.right")}
                             onClick={() => runAlign("right")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignHorizontalJustifyEnd size={16} />
                         </button>
@@ -2851,7 +3083,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.top")}
                             onClick={() => runAlign("top")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignVerticalJustifyStart size={16} />
                         </button>
@@ -2860,7 +3092,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.vCenter")}
                             onClick={() => runAlign("v-center")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignVerticalJustifyCenter size={16} />
                         </button>
@@ -2869,7 +3101,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.bottom")}
                             onClick={() => runAlign("bottom")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignVerticalJustifyEnd size={16} />
                         </button>
@@ -2878,7 +3110,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.hGap")}
                             onClick={() => runAlign("h-gap")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignHorizontalSpaceBetween size={16} />
                         </button>
@@ -2887,7 +3119,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             className="erd-toolbar-btn"
                             title={t("toolbar.align.vGap")}
                             onClick={() => runAlign("v-gap")}
-                            disabled={toolbarDisabled}
+                            disabled={layoutEditDisabled}
                         >
                             <AlignVerticalSpaceBetween size={16} />
                         </button>
@@ -2985,11 +3217,14 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                         : undefined
                                 }
                                 minZoom={0.04}
+                                nodesDraggable={!layoutLocked}
+                                nodesConnectable={!layoutLocked}
                                 selectionOnDrag={selectionDragArmed}
                                 panOnDrag={!selectionDragArmed}
                                 onPaneClick={() => {
                                     setEdgeContextMenu(null);
                                     setElevatedEdgeIds([]);
+                                    setAlignAnchorTableId(null);
                                     if (relationshipCreateMode) {
                                         setRelationshipCreateSelection([]);
                                     }
@@ -3002,7 +3237,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 onEdgeClick={onEdgeClick}
                                 onNodeDragStop={onNodeDragStop}
                                 onEdgesDelete={(deleted) => {
-                                    deleteSelectionFromDoc(
+                                    if (layoutLocked) return;
+                                    requestDeleteSelection(
                                         [],
                                         deleted.map((edge) => edge.id),
                                     );
@@ -3494,6 +3730,72 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         setCreateTableContext(null);
                     }}
                 />
+                {deleteConfirmDialog ? (
+                    <div className="erd-dialog-backdrop" role="presentation">
+                        <div
+                            className="erd-dialog"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="erd-delete-relationship-title"
+                            style={{ width: "min(520px, 100%)", height: "auto" }}
+                        >
+                            <div className="erd-dialog-header">
+                                <span id="erd-delete-relationship-title">
+                                    {t("dialog.relationshipDelete.title")}
+                                </span>
+                            </div>
+                            <div className="erd-dialog-body">
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontSize: 14,
+                                        whiteSpace: "pre-line",
+                                        lineHeight: 1.45,
+                                    }}
+                                >
+                                    {t("dialog.relationshipDelete.message")}
+                                </p>
+                            </div>
+                            <div className="erd-dialog-footer">
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--primary"
+                                    onClick={() => {
+                                        executeDeleteSelection(
+                                            deleteConfirmDialog.tableIds,
+                                            deleteConfirmDialog.relationshipIds,
+                                            true,
+                                        );
+                                        setDeleteConfirmDialog(null);
+                                    }}
+                                >
+                                    {t("dialog.yes")}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--ghost"
+                                    onClick={() => {
+                                        executeDeleteSelection(
+                                            deleteConfirmDialog.tableIds,
+                                            deleteConfirmDialog.relationshipIds,
+                                            false,
+                                        );
+                                        setDeleteConfirmDialog(null);
+                                    }}
+                                >
+                                    {t("dialog.no")}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--ghost"
+                                    onClick={() => setDeleteConfirmDialog(null)}
+                                >
+                                    {t("dialog.cancel")}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
                 {fkCollisionDialog ? (
                     <div className="erd-dialog-backdrop" role="presentation">
                         <div

@@ -443,6 +443,60 @@ describe("createDesignerStore + zundo", () => {
         );
     });
 
+    it("deleteSelection with FK removal=true deletes target column even when FK metadata is missing", () => {
+        const useStore = createDesignerStore({ initialDialect: "postgres" });
+        useStore.getState().addTable(
+            {
+                id: "pk",
+                logicalName: "P",
+                physicalName: "TP",
+                columns: [
+                    createColumn("postgres", {
+                        id: "pkc",
+                        logicalName: "ID",
+                        logicalType: "NUMBER",
+                        nullable: false,
+                    }),
+                ],
+            },
+            0,
+            0,
+        );
+        useStore.getState().addTable(
+            {
+                id: "fk",
+                logicalName: "F",
+                physicalName: "TF",
+                columns: [
+                    createColumn("postgres", {
+                        id: "fkcol",
+                        logicalName: "ID",
+                        logicalType: "NUMBER",
+                    }),
+                ],
+            },
+            100,
+            0,
+        );
+        useStore.getState().addRelationship({
+            id: "r-meta-missing",
+            sourceTableId: "pk",
+            targetTableId: "fk",
+            sourceColumnId: "pkc",
+            targetColumnId: "fkcol",
+            autoCreatedTargetColumn: false,
+            originPkColumnId: "another-pk-id",
+        });
+
+        useStore.getState().deleteSelection([], ["r-meta-missing"], {
+            removeFkColumnsWithRelationship: true,
+        });
+
+        const fkTable = useStore.getState().doc.model.tables.find((t) => t.id === "fk")!;
+        expect(useStore.getState().doc.model.relationships).toHaveLength(0);
+        expect(fkTable.columns.some((c) => c.id === "fkcol")).toBe(false);
+    });
+
     it("removeRelationship deletes FK column by column metadata", () => {
         const useStore = createDesignerStore({ initialDialect: "postgres" });
         useStore.getState().addTable(

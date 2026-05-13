@@ -254,6 +254,17 @@
   border-color: rgba(220, 38, 38, 0.55);
 }
 
+.erd-node-card--align-anchor {
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.45), 0 10px 26px rgba(234, 88, 12, 0.22);
+  border-color: rgba(234, 88, 12, 0.72);
+}
+
+/* 선택 + 기준(anchor) 동시 상태에서도 기준 강조가 묻히지 않게 우선 적용 */
+.erd-node-card--selected.erd-node-card--align-anchor {
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.52), 0 10px 26px rgba(234, 88, 12, 0.24);
+  border-color: rgba(234, 88, 12, 0.8);
+}
+
 .erd-root--elevate-selected-relationships .react-flow__edge.erd-edge-elevated {
   z-index: 1200 !important;
 }

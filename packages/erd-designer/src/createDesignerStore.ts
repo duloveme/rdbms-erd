@@ -82,7 +82,11 @@ export interface DesignerState {
     setNodePositions: (
         positions: Record<string, { x: number; y: number }>,
     ) => void;
-    alignSelected: (tableIds: string[], type: AlignType) => void;
+    alignSelected: (
+        tableIds: string[],
+        type: AlignType,
+        anchorTableId?: string,
+    ) => void;
     setTableMeta: (
         tableId: string,
         meta: {
@@ -117,7 +121,11 @@ export interface DesignerState {
     /** 관계선 출발점 절대 Y(px) 변경 */
     setRelationshipSourceLineY: (relationshipId: string, y: number) => void;
     /** 선택된 테이블/관계선을 한 번에 삭제(Undo 1스텝 보장) */
-    deleteSelection: (tableIds: string[], relationshipIds: string[]) => void;
+    deleteSelection: (
+        tableIds: string[],
+        relationshipIds: string[],
+        options?: { removeFkColumnsWithRelationship?: boolean },
+    ) => void;
 }
 
 export function createDesignerStore(
@@ -287,12 +295,13 @@ export function createDesignerStore(
                             };
                         }
                     }),
-                alignSelected: (tableIds, type) =>
+                alignSelected: (tableIds, type, anchorTableId) =>
                     set((state) => {
                         const updates = alignNodePositions(
                             tableIds,
                             state.doc.layout.nodePositions,
                             type,
+                            anchorTableId,
                         );
                         for (const [id, pos] of Object.entries(updates)) {
                             state.doc.layout.nodePositions[id] = pos;
@@ -469,8 +478,10 @@ export function createDesignerStore(
                             r.sourceLineY = normalized;
                         }
                     }),
-                deleteSelection: (tableIds, relationshipIds) =>
+                deleteSelection: (tableIds, relationshipIds, options) =>
                     set((state) => {
+                        const removeFkColumnsWithRelationship =
+                            options?.removeFkColumnsWithRelationship ?? true;
                         const tableSet = new Set(tableIds);
                         const relSet = new Set(relationshipIds);
                         for (const id of relationshipIds) {
@@ -495,38 +506,74 @@ export function createDesignerStore(
                                 relSet.add(rel.id);
                             }
                         }
-                        for (const rel of state.doc.model.relationships) {
-                            if (!relSet.has(rel.id) || !rel.targetColumnId)
-                                continue;
-                            if (tableSet.has(rel.targetTableId)) continue;
-                            const targetTable = state.doc.model.tables.find(
-                                (t) => t.id === rel.targetTableId,
-                            );
-                            if (!targetTable) continue;
-                            const targetColumn = targetTable.columns.find(
-                                (c) => c.id === rel.targetColumnId,
-                            );
-                            const usedByRemaining =
-                                state.doc.model.relationships.some(
-                                    (other) =>
-                                        other.id !== rel.id &&
-                                        !relSet.has(other.id) &&
-                                        other.targetTableId ===
-                                            rel.targetTableId &&
-                                        other.targetColumnId ===
-                                            rel.targetColumnId,
-                                );
-                            if (
-                                !usedByRemaining &&
-                                shouldDeleteFkColumnByRelationship(
-                                    rel,
-                                    targetColumn,
-                                )
-                            ) {
-                                targetTable.columns =
-                                    targetTable.columns.filter(
-                                        (c) => c.id !== rel.targetColumnId,
+                        if (removeFkColumnsWithRelationship) {
+                            for (const rel of state.doc.model.relationships) {
+                                if (!relSet.has(rel.id) || !rel.targetColumnId)
+                                    continue;
+                                if (tableSet.has(rel.targetTableId)) continue;
+                                const targetTable =
+                                    state.doc.model.tables.find(
+                                        (t) => t.id === rel.targetTableId,
                                     );
+                                if (!targetTable) continue;
+                                const targetColumn = targetTable.columns.find(
+                                    (c) => c.id === rel.targetColumnId,
+                                );
+                                const usedByRemaining =
+                                    state.doc.model.relationships.some(
+                                        (other) =>
+                                            other.id !== rel.id &&
+                                            !relSet.has(other.id) &&
+                                            other.targetTableId ===
+                                                rel.targetTableId &&
+                                            other.targetColumnId ===
+                                                rel.targetColumnId,
+                                    );
+                                if (
+                                    !usedByRemaining &&
+                                    (shouldDeleteFkColumnByRelationship(
+                                        rel,
+                                        targetColumn,
+                                    ) ||
+                                        // "예(관계+FK 삭제)"에서는 메타가 누락/불일치여도
+                                        // 관계가 가리키는 타깃 컬럼 자체를 삭제한다.
+                                        Boolean(targetColumn))
+                                ) {
+                                    targetTable.columns =
+                                        targetTable.columns.filter(
+                                            (c) => c.id !== rel.targetColumnId,
+                                        );
+                                }
+                            }
+                        } else {
+                            // 관계선만 지우는 경우, 더 이상 참조되지 않는 FK 컬럼의 표시 메타를 정리한다.
+                            for (const rel of state.doc.model.relationships) {
+                                if (!relSet.has(rel.id) || !rel.targetColumnId)
+                                    continue;
+                                if (tableSet.has(rel.targetTableId)) continue;
+                                const targetTable =
+                                    state.doc.model.tables.find(
+                                        (t) => t.id === rel.targetTableId,
+                                    );
+                                if (!targetTable) continue;
+                                const targetColumn = targetTable.columns.find(
+                                    (c) => c.id === rel.targetColumnId,
+                                );
+                                if (!targetColumn) continue;
+                                const usedByRemaining =
+                                    state.doc.model.relationships.some(
+                                        (other) =>
+                                            other.id !== rel.id &&
+                                            !relSet.has(other.id) &&
+                                            other.targetTableId ===
+                                                rel.targetTableId &&
+                                            other.targetColumnId ===
+                                                rel.targetColumnId,
+                                    );
+                                if (!usedByRemaining) {
+                                    delete targetColumn.isForeignKey;
+                                    delete targetColumn.referencesPrimaryColumnId;
+                                }
                             }
                         }
                         state.doc.model.relationships =

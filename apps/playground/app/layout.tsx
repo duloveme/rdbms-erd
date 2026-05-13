@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import "@xyflow/react/dist/style.css";
+import "@rdbms-erd/designer/designer.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
