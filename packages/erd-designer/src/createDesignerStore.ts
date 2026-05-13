@@ -94,6 +94,7 @@ export interface DesignerState {
             physicalName?: string;
             schemaName?: string | null;
             color?: string | null;
+            description?: string | null;
         },
     ) => void;
     /** 컬럼 배열 전체 교체(순서·추가·삭제). 해당 테이블을 참조하던 관계 중 사라진 컬럼은 제거된다. */
@@ -328,6 +329,15 @@ export function createDesignerStore(
                         if (meta.color !== undefined) {
                             if (meta.color === null) delete table.color;
                             else table.color = meta.color;
+                        }
+                        if (meta.description !== undefined) {
+                            if (
+                                meta.description === null ||
+                                !meta.description.trim()
+                            )
+                                delete table.description;
+                            else
+                                table.description = meta.description;
                         }
                     }),
                 setTableColumns: (tableId, columns) =>

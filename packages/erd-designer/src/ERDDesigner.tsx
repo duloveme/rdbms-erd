@@ -3671,6 +3671,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             physicalName: t.physicalName,
                             schemaName: t.schemaName ?? null,
                             color: t.color === undefined ? null : t.color,
+                            description: t.description ?? null,
                         });
                         setTableColumns(t.id, t.columns);
                     }}
