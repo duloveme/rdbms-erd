@@ -10,6 +10,8 @@ import {
     Controls,
     Edge,
     EdgeChange,
+    getNodesBounds,
+    getViewportForBounds,
     Handle,
     MiniMap,
     Node,
@@ -59,6 +61,7 @@ import {
     FileDown,
     FileCode,
     FilePlus,
+    FileSpreadsheet,
     FileImage,
     KeyRound,
     Link2,
@@ -85,6 +88,7 @@ import React, {
     useCallback,
     useEffect,
     useImperativeHandle,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -105,6 +109,7 @@ import {
     TABLE_RELATIONSHIP_SOURCE_HANDLE_LEFT_ID,
     TABLE_RELATIONSHIP_SOURCE_HANDLE_RIGHT_ID,
     buildRelationshipFlowEdges,
+    relationshipSourceLineRatioFromAbsoluteY,
     sourceLineYForSourceColumnRow,
     targetFkColumnHandleId,
     type RelationshipEdgeData,
@@ -668,6 +673,33 @@ function getHeaderTextColor(background: string): "#0f172a" | "#ffffff" {
     return contrastWithWhite > contrastWithBlack ? "#ffffff" : "#0f172a";
 }
 
+/** Flow 노드: 현재 모드 이름이 비어 있으면 반대 쪽 이름으로 표시 */
+function displayTableTitleInFlow(
+    table: TableModel,
+    physicalTitle: string,
+    displayMode: CanvasDisplayMode,
+): string {
+    const pt = physicalTitle.trim();
+    const p = table.physicalName?.trim() ?? "";
+    const l = table.logicalName?.trim() ?? "";
+    if (displayMode === "logical") {
+        return l || pt || p || table.logicalName || table.physicalName || "";
+    }
+    return pt || p || l || table.physicalName || table.logicalName || "";
+}
+
+function displayColumnPrimaryLabel(
+    col: TableModel["columns"][number],
+    displayMode: CanvasDisplayMode,
+): string {
+    const p = col.physicalName?.trim() ?? "";
+    const l = col.logicalName?.trim() ?? "";
+    if (displayMode === "logical") {
+        return l || p || col.logicalName || col.physicalName || "";
+    }
+    return p || l || col.physicalName || col.logicalName || "";
+}
+
 const TableNode = memo(function TableNode({
     data,
     selected,
@@ -701,10 +733,11 @@ const TableNode = memo(function TableNode({
     useEffect(() => {
         updateNodeInternals(table.id);
     }, [columnSignature, table.id, tableWidth, updateNodeInternals]);
-    const title =
-        displayMode === "logical"
-            ? table.logicalName
-            : physicalTitle || table.physicalName || table.logicalName;
+    const title = displayTableTitleInFlow(
+        table,
+        physicalTitle ?? "",
+        displayMode,
+    );
 
     const headerBackground = table.color ?? "#e8f0ff";
     const headerTextColor = getHeaderTextColor(headerBackground);
@@ -726,7 +759,7 @@ const TableNode = memo(function TableNode({
         <div
             className={cardClass}
             data-table-id={table.id}
-            aria-label={`table-${table.physicalName}`}
+            aria-label={title || `table-${table.id}`}
             style={{ width: tableWidth }}
             onDoubleClick={(e) => {
                 e.stopPropagation();
@@ -796,6 +829,10 @@ const TableNode = memo(function TableNode({
             <div
                 className="erd-node-header"
                 style={{ background: headerBackground, color: headerTextColor }}
+                onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    onEditTable(table.id);
+                }}
             >
                 <span className="erd-node-header-title" title={title}>
                     {title}
@@ -822,10 +859,10 @@ const TableNode = memo(function TableNode({
                     </div>
                 ) : (
                     table.columns.map((col) => {
-                        const primary =
-                            displayMode === "logical"
-                                ? col.logicalName
-                                : col.physicalName;
+                        const primary = displayColumnPrimaryLabel(
+                            col,
+                            displayMode,
+                        );
                         const secondary =
                             displayMode === "logical"
                                 ? col.logicalType
@@ -945,9 +982,6 @@ export interface ERDDesignerHandle {
     ) => void;
 }
 
-/** 테이블 수가 이 값 이상이면 compact + visible-only 렌더 등 성능 모드로 전환한다. */
-const INTERNAL_LARGE_DIAGRAM_TABLE_THRESHOLD = 1000;
-
 export interface ERDDesignerProps {
     value?: DesignDocument;
     onChange?: (doc: DesignDocument) => void;
@@ -998,6 +1032,15 @@ export interface ERDDesignerProps {
     hostDdlGenerators?: Record<string, DdlGeneratorHook>;
     /** Fallback to style-based generator when hook fails. Default true. */
     fallbackOnHookError?: boolean;
+    /**
+     * Excel보내기: 지정 시 툴바에서만 호출되며, 첫 인자는 보낼 `TableModel[]`의 `JSON.stringify` 결과이다.
+     * 두 번째 인자에 패널의 `doc.settings.projectName` 등이 담기므로, 호스트에서 파일명을 맞출 때 사용한다.
+     * 생략 시 내장 동작으로 선택(또는 전체) 테이블을 시트별 `.xlsx`로 저장한다.
+     */
+    onExportExcel?: (
+        tablesJson: string,
+        meta?: { projectName?: unknown },
+    ) => void | Promise<void>;
 }
 
 export type ERDDesignerShellProps = Omit<
@@ -1007,6 +1050,26 @@ export type ERDDesignerShellProps = Omit<
 
 const nodeTypes = { tableNode: TableNode };
 const edgeTypes = { relationship: RelationshipEdge };
+
+function erdPrimaryModShortcutPrefix(): "Cmd+" | "Ctrl+" {
+    if (typeof navigator === "undefined") return "Ctrl+";
+    return /Mac|iP(hone|od|ad)/i.test(navigator.userAgent) ? "Cmd+" : "Ctrl+";
+}
+
+function erdExportDomFilter(node: unknown): boolean {
+    if (!(node instanceof HTMLElement)) return true;
+    if (
+        node.classList.contains("erd-edge-context-menu") ||
+        node.classList.contains("react-flow__controls") ||
+        node.classList.contains("react-flow__minimap") ||
+        node.classList.contains("react-flow__attribution") ||
+        node.classList.contains("react-flow__selection") ||
+        node.classList.contains("react-flow__nodesselection-rect")
+    ) {
+        return false;
+    }
+    return true;
+}
 
 const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
     function ERDDesignerShell(
@@ -1034,6 +1097,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             hostMetas,
             hostDdlGenerators,
             fallbackOnHookError = true,
+            onExportExcel,
         },
         ref,
     ) {
@@ -1053,6 +1117,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
         const doc = useDesignerStore((s) => s.doc);
         const setDoc = useDesignerStore((s) => s.setDoc);
+        const patchDocSettings = useDesignerStore((s) => s.patchDocSettings);
         const addTable = useDesignerStore((s) => s.addTable);
         const addRelationship = useDesignerStore((s) => s.addRelationship);
         const deleteSelectionFromDoc = useDesignerStore(
@@ -1094,6 +1159,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const [themeModeInternal, setThemeModeInternal] =
             useState<DesignerThemeMode>(defaultThemeMode);
         const themeMode = themeControlled ? themeModeProp : themeModeInternal;
+        const [primaryMod, setPrimaryMod] = useState<"Cmd+" | "Ctrl+">(
+            "Ctrl+",
+        );
+        useLayoutEffect(() => {
+            setPrimaryMod(erdPrimaryModShortcutPrefix());
+        }, []);
+        const redoShortcutDisplay = useMemo(
+            () => (primaryMod === "Cmd+" ? "Cmd+Shift+Z" : "Ctrl+Y"),
+            [primaryMod],
+        );
         const setThemeMode = useCallback(
             (next: DesignerThemeMode) => {
                 if (!themeControlled) setThemeModeInternal(next);
@@ -1281,9 +1356,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             };
         }, [edgeContextMenu]);
 
-        const tableCount = doc.model.tables.length;
-        const largeDiagram =
-            tableCount >= INTERNAL_LARGE_DIAGRAM_TABLE_THRESHOLD;
         const formatPhysicalTableName = useCallback((table: TableModel) => {
             const schema = table.schemaName?.trim();
             return schema
@@ -1318,12 +1390,14 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                   )
                 : doc.model.tables;
             const mapped = tablesForSchema.map((table) => {
+                const physicalTitle = formatPhysicalTableName(table);
                 const physicalName =
-                    formatPhysicalTableName(table) || table.logicalName;
-                const label =
-                    displayMode === "logical"
-                        ? table.logicalName
-                        : physicalName;
+                    physicalTitle || table.physicalName || table.logicalName;
+                const label = displayTableTitleInFlow(
+                    table,
+                    physicalTitle,
+                    displayMode,
+                );
                 return {
                     id: table.id,
                     label,
@@ -1335,8 +1409,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             return mapped.filter(
                 (table) =>
                     table.label.toLowerCase().includes(q) ||
-                    table.logicalName.toLowerCase().includes(q) ||
-                    table.physicalName.toLowerCase().includes(q),
+                    (table.logicalName ?? "").toLowerCase().includes(q) ||
+                    (table.physicalName ?? "").toLowerCase().includes(q),
             );
         }, [
             displayMode,
@@ -1346,10 +1420,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             panelTableSchemaFilter,
         ]);
 
-        const largeDefaultViewport = useMemo(
-            () => ({ x: 40, y: 40, zoom: 0.22 }),
-            [],
-        );
         const dialectOptions = useMemo(
             () => resolveDialectMetas(coreOptions),
             [coreOptions],
@@ -1371,7 +1441,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     data: {
                         table,
                         tableWidth,
-                        compact: largeDiagram,
+                        compact: false,
                         displayMode,
                         physicalTitle: formatPhysicalTableName(table),
                         onEditTable,
@@ -1385,7 +1455,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 displayMode,
                 formatPhysicalTableName,
                 hasDesign,
-                largeDiagram,
                 onEditTable,
                 relationshipEndpointTableIds,
                 alignAnchorTableId,
@@ -1419,8 +1488,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const diagramSignature = useMemo(
             () =>
-                `${revealHiddenRelationshipLines ? 1 : 0}:${largeDiagram ? 1 : 0}:${displayMode}:${serializeDesign(doc)}`,
-            [displayMode, doc, largeDiagram, revealHiddenRelationshipLines],
+                `${revealHiddenRelationshipLines ? 1 : 0}:${displayMode}:${serializeDesign(doc)}`,
+            [displayMode, doc, revealHiddenRelationshipLines],
         );
 
         const [nodes, setNodes] = useState<Node<TableNodeData>[]>(flowNodes);
@@ -1752,7 +1821,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const onFlowInit = useCallback(
             (instance: ReactFlowInstance<Node<TableNodeData>, Edge>) => {
                 rfInstanceRef.current = instance;
-                if (largeDiagram) return;
                 requestAnimationFrame(() => {
                     void instance.fitView({
                         duration: 0,
@@ -1761,7 +1829,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     });
                 });
             },
-            [largeDiagram],
+            [],
         );
 
         const openCreateTableDialog = useCallback(() => {
@@ -1772,7 +1840,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             setCreatingTableDraft({
                 id: `table-${n}`,
                 logicalName: name,
-                physicalName: name,
+                physicalName: "",
                 columns: [],
                 color: "#e8f0ff",
             });
@@ -1821,9 +1889,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     logicalName: t("designer.defaultTableLogicalName", {
                         n: idRef.current,
                     }),
-                    physicalName: t("designer.defaultTableLogicalName", {
-                        n: idRef.current,
-                    }),
+                    physicalName: "",
                     color: "#e8f0ff",
                     columns: relationSeedColumns,
                 });
@@ -1875,10 +1941,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 const relationshipGroupId = isCompositeBatch
                     ? createId("relgrp")
                     : undefined;
-                const sharedSourceLineY = isCompositeBatch
-                    ? sourceLineYForSourceColumnRow(
+                const sharedSourceLineRatio = isCompositeBatch
+                    ? relationshipSourceLineRatioFromAbsoluteY(
                           sourceTable,
-                          sourceColumns[0]?.id,
+                          sourceLineYForSourceColumnRow(
+                              sourceTable,
+                              sourceColumns[0]?.id,
+                          ),
                       )
                     : undefined;
 
@@ -1991,11 +2060,11 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         originPkColumnId: rel.sourceColumnId,
                         relationshipGroupId,
                         cardinality: relationshipCardinalityMode,
-                        sourceLineRatio: 0.5,
+                        sourceLineRatio:
+                            sharedSourceLineRatio !== undefined
+                                ? sharedSourceLineRatio
+                                : 0.5,
                         linePivotRatio: 0.5,
-                        ...(sharedSourceLineY !== undefined
-                            ? { sourceLineY: sharedSourceLineY }
-                            : {}),
                     });
                 }
             },
@@ -2391,10 +2460,22 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             [addTableAt, connectWithForeignKey, doc, useDesignerStore],
         );
 
-        const runAlign = (type: AlignType) => {
-            if (layoutLocked) return;
-            alignSelected(selectedNodeIds, type, alignAnchorTableId ?? undefined);
-        };
+        const runAlign = useCallback(
+            (type: AlignType) => {
+                if (layoutLocked) return;
+                alignSelected(
+                    selectedNodeIds,
+                    type,
+                    alignAnchorTableId ?? undefined,
+                );
+            },
+            [
+                alignAnchorTableId,
+                alignSelected,
+                layoutLocked,
+                selectedNodeIds,
+            ],
+        );
         const focusTableOnCanvas = useCallback(
             (tableId: string) => {
                 const inst = rfInstanceRef.current;
@@ -2463,6 +2544,35 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
         const canUndo = hasDesign && pastCount > 0;
         const canRedo = hasDesign && futureCount > 0;
+
+        const toggleRelationshipCreateMode = useCallback(() => {
+            if (layoutEditDisabled) return;
+            setRelationshipCreateMode((prev) => {
+                const next = !prev;
+                if (next) {
+                    setSelectedNodeIds([]);
+                    setSelectedEdgeIds([]);
+                    setElevatedEdgeIds([]);
+                    setNodes((nds) =>
+                        nds.map((n) =>
+                            n.selected ? { ...n, selected: false } : n,
+                        ),
+                    );
+                    setEdges((eds) =>
+                        eds.map((e) =>
+                            e.selected ? { ...e, selected: false } : e,
+                        ),
+                    );
+                }
+                return next;
+            });
+            setRelationshipCreateSelection([]);
+        }, [layoutEditDisabled]);
+
+        const toggleSelectionDragArmed = useCallback(() => {
+            if (layoutEditDisabled) return;
+            setSelectionDragArmed((prev) => !prev);
+        }, [layoutEditDisabled]);
 
         const editingTable = editingTableId
             ? (doc.model.tables.find((t) => t.id === editingTableId) ?? null)
@@ -2681,57 +2791,270 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             setSelectedEdgeIds([]);
         }, [addRelationship, addTable, hasDesign, layoutLocked]);
 
+        useEffect(() => {
+            const onKeyDown = (e: KeyboardEvent) => {
+                const target = e.target as HTMLElement | null;
+                if (
+                    target?.isContentEditable ||
+                    target?.tagName === "INPUT" ||
+                    target?.tagName === "TEXTAREA" ||
+                    target?.tagName === "SELECT"
+                ) {
+                    return;
+                }
+                if (
+                    newErDialogOpen ||
+                    fkCollisionDialog ||
+                    deleteConfirmDialog ||
+                    editingTableId !== null ||
+                    creatingTableDraft
+                ) {
+                    return;
+                }
+
+                const mod = e.metaKey || e.ctrlKey;
+                if (!mod) return;
+
+                if (
+                    !e.shiftKey &&
+                    (e.key === "ArrowUp" || e.key === "ArrowDown")
+                ) {
+                    if (!hasDesign || toolbarDisabled) return;
+                    e.preventDefault();
+                    if (e.key === "ArrowUp") {
+                        setDisplayMode("logical");
+                    } else {
+                        setDisplayMode("physical");
+                    }
+                    return;
+                }
+
+                if (
+                    e.shiftKey &&
+                    (e.key === "ArrowUp" ||
+                        e.key === "ArrowDown" ||
+                        e.key === "ArrowLeft" ||
+                        e.key === "ArrowRight")
+                ) {
+                    if (layoutEditDisabled) return;
+                    e.preventDefault();
+                    const byKey: Record<string, AlignType> = {
+                        ArrowUp: "top",
+                        ArrowDown: "bottom",
+                        ArrowLeft: "left",
+                        ArrowRight: "right",
+                    };
+                    const at = byKey[e.key];
+                    if (at) runAlign(at);
+                    return;
+                }
+
+                const key = e.key.toLowerCase();
+
+                if (key === "r") {
+                    if (layoutEditDisabled) return;
+                    e.preventDefault();
+                    toggleRelationshipCreateMode();
+                    return;
+                }
+
+                if (key === "g") {
+                    if (layoutEditDisabled) return;
+                    e.preventDefault();
+                    toggleSelectionDragArmed();
+                    return;
+                }
+
+                if (key === "l") {
+                    if (!hasDesign || toolbarDisabled) return;
+                    e.preventDefault();
+                    setLayoutLocked(!layoutLocked);
+                    return;
+                }
+
+                if (key === "s") {
+                    if (!hasDesign || toolbarDisabled || !isDirty) return;
+                    e.preventDefault();
+                    onSave?.(doc);
+                    setSavedSignature(serializeDesign(doc));
+                    return;
+                }
+
+                if (key === "e" && e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!hasDesign || layoutEditDisabled) return;
+                    openCreateTableDialog();
+                    return;
+                }
+
+                if (!e.shiftKey && key === "z") {
+                    if (!canUndo) return;
+                    e.preventDefault();
+                    useDesignerStore.temporal.getState().undo();
+                    return;
+                }
+
+                if (e.shiftKey && key === "z") {
+                    if (!canRedo) return;
+                    e.preventDefault();
+                    useDesignerStore.temporal.getState().redo();
+                    return;
+                }
+
+                if (key === "y") {
+                    if (!canRedo) return;
+                    e.preventDefault();
+                    useDesignerStore.temporal.getState().redo();
+                    return;
+                }
+
+                if (key === "c") {
+                    if (!hasDesign || selectedNodeIds.length === 0) return;
+                    e.preventDefault();
+                    void copySelectedTables();
+                    return;
+                }
+
+                if (key === "v") {
+                    if (!hasDesign || layoutLocked) return;
+                    e.preventDefault();
+                    void pasteTablesFromClipboard();
+                    return;
+                }
+
+                if (key === "0" || e.code === "Digit0") {
+                    if (!hasDesign) return;
+                    const inst = rfInstanceRef.current;
+                    if (!inst) return;
+                    e.preventDefault();
+                    void inst.fitView({
+                        duration: 0,
+                        padding: 0.1,
+                        maxZoom: 0.95,
+                    });
+                }
+            };
+            window.addEventListener("keydown", onKeyDown, true);
+            return () =>
+                window.removeEventListener("keydown", onKeyDown, true);
+        }, [
+            canRedo,
+            canUndo,
+            copySelectedTables,
+            creatingTableDraft,
+            deleteConfirmDialog,
+            doc,
+            editingTableId,
+            fkCollisionDialog,
+            hasDesign,
+            isDirty,
+            layoutLocked,
+            newErDialogOpen,
+            onSave,
+            openCreateTableDialog,
+            pasteTablesFromClipboard,
+            selectedNodeIds,
+            setSavedSignature,
+            setDisplayMode,
+            setLayoutLocked,
+            runAlign,
+            toolbarDisabled,
+            toggleRelationshipCreateMode,
+            toggleSelectionDragArmed,
+            useDesignerStore.temporal,
+        ]);
+
         const exportCanvasBlob = useCallback(async (): Promise<Blob | null> => {
             const host = canvasRootRef.current;
             if (!host) return null;
 
-            const selectors = [
+            const exportBg =
+                themeMode === "dark" ? "#020617" : "#f8fafc";
+
+            const pane = host.querySelector(
                 ".react-flow",
+            ) as HTMLElement | null;
+            const viewportEl = host.querySelector(
                 ".react-flow__viewport",
-                ".erd-canvas-inner",
-            ];
+            ) as HTMLElement | null;
+
+            const exportTransformStyle = ():
+                | Partial<CSSStyleDeclaration>
+                | undefined => {
+                if (!hasDesign || !pane || nodes.length === 0) return undefined;
+                const bounds = getNodesBounds(nodes);
+                if (
+                    !Number.isFinite(bounds.width) ||
+                    !Number.isFinite(bounds.height) ||
+                    bounds.width <= 0 ||
+                    bounds.height <= 0
+                ) {
+                    return undefined;
+                }
+                const w = pane.clientWidth || 1;
+                const h = pane.clientHeight || 1;
+                const { x, y, zoom } = getViewportForBounds(
+                    bounds,
+                    w,
+                    h,
+                    0.02,
+                    1,
+                    0.12,
+                );
+                return {
+                    transform: `translate(${x}px, ${y}px) scale(${zoom})`,
+                    transformOrigin: "0 0",
+                } as Partial<CSSStyleDeclaration>;
+            };
+
+            const transformStyle = exportTransformStyle();
+
+            const tryBlob = async (
+                el: HTMLElement,
+                withExportTransform: boolean,
+            ): Promise<Blob | null> => {
+                try {
+                    const style =
+                        withExportTransform &&
+                        el.classList.contains("react-flow__viewport") &&
+                        transformStyle
+                            ? transformStyle
+                            : undefined;
+                    const blob = await toBlob(el, {
+                        cacheBust: true,
+                        pixelRatio: 2,
+                        backgroundColor: exportBg,
+                        filter: erdExportDomFilter,
+                        ...(style ? { style } : {}),
+                    });
+                    return blob;
+                } catch {
+                    return null;
+                }
+            };
+
+            if (viewportEl) {
+                const withTf = Boolean(transformStyle);
+                const blob = await tryBlob(viewportEl, true);
+                if (blob) return blob;
+                if (withTf) {
+                    const fallback = await tryBlob(viewportEl, false);
+                    if (fallback) return fallback;
+                }
+            }
+
+            const selectors = [".react-flow", ".erd-canvas-inner"];
             for (const selector of selectors) {
                 const canvasEl = host.querySelector(
                     selector,
                 ) as HTMLElement | null;
                 if (!canvasEl) continue;
-                try {
-                    const blob = await toBlob(canvasEl, {
-                        cacheBust: true,
-                        pixelRatio: 2,
-                        backgroundColor: "#ffffff",
-                        filter: (node) => {
-                            if (!(node instanceof HTMLElement)) return true;
-                            if (
-                                node.classList.contains(
-                                    "erd-edge-context-menu",
-                                ) ||
-                                node.classList.contains(
-                                    "react-flow__controls",
-                                ) ||
-                                node.classList.contains(
-                                    "react-flow__minimap",
-                                ) ||
-                                node.classList.contains(
-                                    "react-flow__attribution",
-                                ) ||
-                                node.classList.contains(
-                                    "react-flow__selection",
-                                ) ||
-                                node.classList.contains(
-                                    "react-flow__nodesselection-rect",
-                                )
-                            ) {
-                                return false;
-                            }
-                            return true;
-                        },
-                    });
-                    if (blob) return blob;
-                } catch {}
+                const blob = await tryBlob(canvasEl, false);
+                if (blob) return blob;
             }
             return null;
-        }, []);
+        }, [hasDesign, nodes, themeMode]);
 
         const exportPdf = useCallback(async () => {
             if (!hasDesign) return;
@@ -2759,6 +3082,31 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             pdf.addImage(dataUrl, "PNG", x, y, w, h);
             pdf.save(`erd-${new Date().toISOString().slice(0, 10)}.pdf`);
         }, [exportCanvasBlob, hasDesign]);
+
+        const exportExcel = useCallback(async () => {
+            if (!hasDesign) return;
+            const liveDoc = useDesignerStore.getState().doc;
+            const idSet =
+                selectedNodeIds.length > 0 ? new Set(selectedNodeIds) : null;
+            const tables = idSet
+                ? liveDoc.model.tables.filter((tb) => idSet.has(tb.id))
+                : liveDoc.model.tables.slice();
+            const json = JSON.stringify(tables);
+            if (onExportExcel) {
+                await Promise.resolve(
+                    onExportExcel(json, {
+                        projectName: liveDoc.settings?.projectName,
+                    }),
+                );
+                return;
+            }
+            const { exportTablesToXlsxFile } = await import(
+                "./exportTablesToXlsx"
+            );
+            await exportTablesToXlsxFile(tables, {
+                projectName: liveDoc.settings?.projectName,
+            });
+        }, [hasDesign, onExportExcel, selectedNodeIds, useDesignerStore]);
 
         const copyCanvasImageToClipboard = useCallback(async () => {
             if (!hasDesign) return;
@@ -2798,7 +3146,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.saveJson")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.saveJson"),
+                                shortcut: `${primaryMod}S`,
+                            })}
                             onClick={async () => {
                                 if (toolbarDisabled || !isDirty) return;
                                 onSave?.(doc);
@@ -2807,6 +3158,15 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             disabled={toolbarDisabled || !isDirty}
                         >
                             <Save size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-toolbar-btn"
+                            title={t("toolbar.exportExcel")}
+                            onClick={() => void exportExcel()}
+                            disabled={toolbarDisabled}
+                        >
+                            <FileSpreadsheet size={16} />
                         </button>
                         <button
                             type="button"
@@ -2838,11 +3198,18 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className={`erd-toolbar-btn${layoutLocked ? " erd-toolbar-btn--active" : ""}`}
-                            title={
-                                layoutLocked
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: layoutLocked
                                     ? t("toolbar.layoutLock.off")
-                                    : t("toolbar.layoutLock.on")
-                            }
+                                    : t("toolbar.layoutLock.on"),
+                                shortcut: `${primaryMod}L`,
+                            })}
+                            aria-label={t("toolbar.tooltipWithShortcut", {
+                                action: layoutLocked
+                                    ? t("toolbar.layoutLock.off")
+                                    : t("toolbar.layoutLock.on"),
+                                shortcut: `${primaryMod}L`,
+                            })}
                             aria-pressed={layoutLocked}
                             onClick={() =>
                                 setLayoutLocked(!layoutLocked)
@@ -2861,7 +3228,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.addTable")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.addTable"),
+                                shortcut: `${primaryMod}Shift+E`,
+                            })}
                             onClick={openCreateTableDialog}
                             disabled={layoutEditDisabled}
                         >
@@ -2912,34 +3282,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                             type="button"
                             className={`erd-toolbar-btn${relationshipCreateMode ? " erd-toolbar-btn--active" : ""}`}
                             aria-pressed={relationshipCreateMode}
-                            title={t("toolbar.relationshipMode")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.relationshipMode"),
+                                shortcut: `${primaryMod}R`,
+                            })}
                             disabled={layoutEditDisabled}
-                            onClick={() => {
-                                setRelationshipCreateMode((prev) => {
-                                    const next = !prev;
-                                    if (next) {
-                                        setSelectedNodeIds([]);
-                                        setSelectedEdgeIds([]);
-                                        setElevatedEdgeIds([]);
-                                        setNodes((nds) =>
-                                            nds.map((n) =>
-                                                n.selected
-                                                    ? { ...n, selected: false }
-                                                    : n,
-                                            ),
-                                        );
-                                        setEdges((eds) =>
-                                            eds.map((e) =>
-                                                e.selected
-                                                    ? { ...e, selected: false }
-                                                    : e,
-                                            ),
-                                        );
-                                    }
-                                    return next;
-                                });
-                                setRelationshipCreateSelection([]);
-                            }}
+                            onClick={toggleRelationshipCreateMode}
                         >
                             {t("toolbar.relationshipMode")}
                         </button>
@@ -2949,8 +3297,22 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn erd-toolbar-btn--logical-physical"
-                            title={`${t("toolbar.modeToggle")}: ${displayMode === "logical" ? t("toolbar.mode.logical") : t("toolbar.mode.physical")}`}
-                            aria-label={`${t("toolbar.modeToggle")}: ${displayMode === "logical" ? t("toolbar.mode.logical") : t("toolbar.mode.physical")}`}
+                            title={t("toolbar.modeTooltipWithShortcuts", {
+                                toggle: t("toolbar.modeToggle"),
+                                state:
+                                    displayMode === "logical"
+                                        ? t("toolbar.mode.logical")
+                                        : t("toolbar.mode.physical"),
+                                shortcuts: `${primaryMod}↑ / ${primaryMod}↓`,
+                            })}
+                            aria-label={t("toolbar.modeTooltipWithShortcuts", {
+                                toggle: t("toolbar.modeToggle"),
+                                state:
+                                    displayMode === "logical"
+                                        ? t("toolbar.mode.logical")
+                                        : t("toolbar.mode.physical"),
+                                shortcuts: `${primaryMod}↑ / ${primaryMod}↓`,
+                            })}
                             onClick={() =>
                                 setDisplayMode((prev) =>
                                     prev === "logical" ? "physical" : "logical",
@@ -2998,10 +3360,11 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className={`erd-toolbar-btn ${selectionDragArmed ? "erd-toolbar-btn--active" : ""}`}
-                            title={t("toolbar.selectionDrag")}
-                            onClick={() =>
-                                setSelectionDragArmed((prev) => !prev)
-                            }
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.selectionDrag"),
+                                shortcut: `${primaryMod}G`,
+                            })}
+                            onClick={toggleSelectionDragArmed}
                             disabled={layoutEditDisabled}
                         >
                             <SquareDashedMousePointer size={16} />
@@ -3009,7 +3372,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.copyTables")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.copyTables"),
+                                shortcut: `${primaryMod}C`,
+                            })}
                             onClick={() => void copySelectedTables()}
                             disabled={
                                 toolbarDisabled || selectedNodeIds.length === 0
@@ -3020,7 +3386,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.pasteTables")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.pasteTables"),
+                                shortcut: `${primaryMod}V`,
+                            })}
                             onClick={() => void pasteTablesFromClipboard()}
                             disabled={layoutEditDisabled}
                         >
@@ -3029,7 +3398,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.undo")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.undo"),
+                                shortcut: `${primaryMod}Z`,
+                            })}
                             onClick={() =>
                                 useDesignerStore.temporal.getState().undo()
                             }
@@ -3040,7 +3412,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.redo")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.redo"),
+                                shortcut: redoShortcutDisplay,
+                            })}
                             onClick={() =>
                                 useDesignerStore.temporal.getState().redo()
                             }
@@ -3054,7 +3429,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.align.left")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.align.left"),
+                                shortcut: `${primaryMod}Shift+←`,
+                            })}
                             onClick={() => runAlign("left")}
                             disabled={layoutEditDisabled}
                         >
@@ -3072,7 +3450,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.align.right")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.align.right"),
+                                shortcut: `${primaryMod}Shift+→`,
+                            })}
                             onClick={() => runAlign("right")}
                             disabled={layoutEditDisabled}
                         >
@@ -3081,7 +3462,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.align.top")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.align.top"),
+                                shortcut: `${primaryMod}Shift+↑`,
+                            })}
                             onClick={() => runAlign("top")}
                             disabled={layoutEditDisabled}
                         >
@@ -3099,7 +3483,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.align.bottom")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.align.bottom"),
+                                shortcut: `${primaryMod}Shift+↓`,
+                            })}
                             onClick={() => runAlign("bottom")}
                             disabled={layoutEditDisabled}
                         >
@@ -3126,7 +3513,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
-                            title={t("toolbar.fitView")}
+                            title={t("toolbar.tooltipWithShortcut", {
+                                action: t("toolbar.fitView"),
+                                shortcut: `${primaryMod}0`,
+                            })}
                             onClick={() =>
                                 void rfInstanceRef.current?.fitView({
                                     duration: 200,
@@ -3208,14 +3598,8 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 elevateEdgesOnSelect={false}
                                 nodeTypes={nodeTypes}
                                 edgeTypes={edgeTypes}
-                                onlyRenderVisibleElements={largeDiagram}
                                 fitView={false}
                                 onInit={onFlowInit}
-                                defaultViewport={
-                                    largeDiagram
-                                        ? largeDefaultViewport
-                                        : undefined
-                                }
                                 minZoom={0.04}
                                 nodesDraggable={!layoutLocked}
                                 nodesConnectable={!layoutLocked}
@@ -3246,7 +3630,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 onEdgeContextMenu={onEdgeContextMenu}
                                 onSelectionChange={onSelectionChange}
                             >
-                                {!largeDiagram ? <MiniMap /> : null}
+                                <MiniMap />
                                 <Controls />
                                 <Background />
                             </ReactFlow>
@@ -3389,13 +3773,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                             }
                                             disabled={!hasDesign}
                                             onChange={(e) =>
-                                                setDoc({
-                                                    ...doc,
-                                                    settings: {
-                                                        ...(doc.settings ?? {}),
-                                                        projectName:
-                                                            e.target.value,
-                                                    },
+                                                patchDocSettings({
+                                                    projectName:
+                                                        e.target.value,
                                                 })
                                             }
                                             style={{
@@ -3426,13 +3806,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                             }
                                             disabled={!hasDesign}
                                             onChange={(e) =>
-                                                setDoc({
-                                                    ...doc,
-                                                    settings: {
-                                                        ...(doc.settings ?? {}),
-                                                        projectDescription:
-                                                            e.target.value,
-                                                    },
+                                                patchDocSettings({
+                                                    projectDescription:
+                                                        e.target.value,
                                                 })
                                             }
                                             style={{
@@ -3664,6 +4040,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     dialect={doc.model.dialect}
                     displayMode={displayMode}
                     coreOptions={coreOptions}
+                    tablesForDuplicateCheck={doc.model.tables}
                     onClose={() => setEditingTableId(null)}
                     onSave={(t) => {
                         setTableMeta(t.id, {
@@ -3682,6 +4059,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     dialect={doc.model.dialect}
                     displayMode={displayMode}
                     coreOptions={coreOptions}
+                    tablesForDuplicateCheck={doc.model.tables}
                     onClose={() => {
                         setCreatingTableDraft(null);
                         setCreateTableContext(null);

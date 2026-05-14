@@ -94,6 +94,29 @@ function tableBottomPx(columnCount: number): number {
     );
 }
 
+/** `pushEdgeForPrimary`·출발 Y 핸들과 동일한 소스 앵커(테이블 카드 로컬 Y). */
+function relationshipSourceAnchorMinMax(columnCount: number): {
+    minY: number;
+    maxY: number;
+} {
+    return { minY: tableTopPx(), maxY: tableBottomPx(columnCount) };
+}
+
+/**
+ * 절대 출발 Y(px)를 `sourceLineRatio`(0~1)로 변환. 복합 FK 생성 시 `sourceLineY` 대신 비율만 저장할 때 사용.
+ */
+export function relationshipSourceLineRatioFromAbsoluteY(
+    sourceTable: DesignModel["tables"][number] | undefined,
+    absoluteLineY: number,
+): number {
+    const colCount = sourceTable?.columns.length ?? 0;
+    const { minY, maxY } = relationshipSourceAnchorMinMax(colCount);
+    const span = Math.max(1, maxY - minY);
+    if (!Number.isFinite(absoluteLineY)) return 0.5;
+    const ratio = (absoluteLineY - minY) / span;
+    return Math.max(0, Math.min(1, ratio));
+}
+
 function groupMembersOrdered(
     model: DesignModel,
     groupId: string,
@@ -189,7 +212,10 @@ function pushEdgeForPrimary(
         (typeof primary.sourceLineRatio === "number"
             ? sourceAnchorMinY +
               (sourceAnchorMaxY - sourceAnchorMinY) * primary.sourceLineRatio
-            : defaultSourceLineY(sourceTable));
+            : sourceLineYForSourceColumnRow(
+                  sourceTable,
+                  primary.sourceColumnId,
+              ));
     const edge: Edge<RelationshipEdgeData> = {
         id: primary.id,
         source: primary.sourceTableId,

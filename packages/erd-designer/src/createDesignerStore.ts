@@ -48,6 +48,11 @@ function relationshipGroupMembers(
 export interface DesignerState {
     doc: DesignDocument;
     setDoc: (doc: DesignDocument) => void;
+    /** `doc.settings`(프로젝트명·설명 등)만 immer로 갱신. 패널 입력이 모델과 동기화되도록 한다. */
+    patchDocSettings: (partial: {
+        projectName?: string;
+        projectDescription?: string;
+    }) => void;
     addTable: (table: TableModel, x: number, y: number) => void;
     removeTable: (tableId: string) => void;
     addRelationship: (rel: RelationshipModel) => void;
@@ -143,6 +148,17 @@ export function createDesignerStore(
                 setDoc: (doc) =>
                     set(() => {
                         return { doc };
+                    }),
+                patchDocSettings: (partial) =>
+                    set((state) => {
+                        const prev = state.doc.settings;
+                        const base =
+                            prev &&
+                            typeof prev === "object" &&
+                            !Array.isArray(prev)
+                                ? { ...prev }
+                                : {};
+                        state.doc.settings = { ...base, ...partial };
                     }),
                 addTable: (table, x, y) =>
                     set((state) => {
@@ -469,6 +485,7 @@ export function createDesignerStore(
                             : 0;
                         for (const r of targets) {
                             r.sourceLineRatio = normalized;
+                            delete r.sourceLineY;
                         }
                     }),
                 setRelationshipSourceLineY: (relationshipId, y) =>

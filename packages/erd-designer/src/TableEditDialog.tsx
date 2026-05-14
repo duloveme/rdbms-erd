@@ -23,7 +23,13 @@ import {
     Trash2,
     X,
 } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import type { CanvasDisplayMode } from "./ERDDesigner";
 import { createId } from "./id";
 import { useErdTranslator } from "./i18n/I18nContext";
@@ -41,6 +47,19 @@ export interface TableEditDialogProps {
     translations?: Partial<Record<I18nKey, string>>;
     t?: (key: I18nKey, vars?: I18nVars) => string;
     coreOptions?: CoreDbMetaOptions;
+    /** 저장 시 이 목록과 논리명·물리명(스키마+물리) 중복을 검사한다. 현재 `table.id`는 제외한다. */
+    tablesForDuplicateCheck?: TableModel[];
+}
+
+type ColumnFocusField = "name" | "type" | "description";
+
+function focusAndSelectTextInput(el: HTMLElement) {
+    el.focus();
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+        queueMicrotask(() => {
+            el.select();
+        });
+    }
 }
 
 function cloneTable(t: TableModel): TableModel {
@@ -48,6 +67,38 @@ function cloneTable(t: TableModel): TableModel {
         ...t,
         columns: t.columns.map((c) => ({ ...c })),
     };
+}
+
+/** 물리 식별: 스키마(있으면)+물리명, 소문자·trim. 물리명이 비면 빈 문자열(중복 검사 제외). */
+function tablePhysicalIdentityKey(table: TableModel): string {
+    const s = table.schemaName?.trim().toLowerCase() ?? "";
+    const p = table.physicalName?.trim().toLowerCase() ?? "";
+    if (!p) return "";
+    return s ? `${s}\0${p}` : p;
+}
+
+function tableDuplicateSaveErrorMessage(
+    normalized: TableModel,
+    allTables: TableModel[],
+    tr: (key: I18nKey, vars?: I18nVars) => string,
+): string | null {
+    if (allTables.length === 0) return null;
+    const selfId = normalized.id;
+    const opponents = allTables.filter((t) => t.id !== selfId);
+    const lk = normalized.logicalName?.trim().toLowerCase() ?? "";
+    if (
+        lk &&
+        opponents.some(
+            (t) => (t.logicalName?.trim().toLowerCase() ?? "") === lk,
+        )
+    ) {
+        return tr("dialog.tableEdit.errorDuplicateLogical");
+    }
+    const pk = tablePhysicalIdentityKey(normalized);
+    if (pk && opponents.some((t) => tablePhysicalIdentityKey(t) === pk)) {
+        return tr("dialog.tableEdit.errorDuplicatePhysical");
+    }
+    return null;
 }
 
 function columnNamesBlank(col: ColumnModel): boolean {
@@ -164,14 +215,52 @@ export function TableEditDialog({
     translations,
     t: tProp,
     coreOptions,
+    tablesForDuplicateCheck,
 }: TableEditDialogProps) {
     const { t } = useErdTranslator({ locale, translations, t: tProp });
     const [draft, setDraft] = useState<TableModel | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
     const [dialogDisplayMode, setDialogDisplayMode] =
         useState<CanvasDisplayMode>(displayMode);
     const [draggingColumnIndex, setDraggingColumnIndex] = useState<
         number | null
     >(null);
+    const columnFieldRegistryRef = useRef(new Map<string, HTMLElement>());
+    const tableDescriptionInputRef = useRef<HTMLInputElement | null>(null);
+
+    const registerColumnField = useCallback(
+        (row: number, field: ColumnFocusField, el: HTMLElement | null) => {
+            const key = `${field}:${row}`;
+            if (el) columnFieldRegistryRef.current.set(key, el);
+            else columnFieldRegistryRef.current.delete(key);
+        },
+        [],
+    );
+
+    const focusNextColumnField = useCallback(
+        (row: number, field: ColumnFocusField, columnCount: number) => {
+            for (let r = row + 1; r < columnCount; r++) {
+                const next = columnFieldRegistryRef.current.get(
+                    `${field}:${r}`,
+                );
+                if (next) {
+                    focusAndSelectTextInput(next);
+                    return;
+                }
+            }
+        },
+        [],
+    );
+
+    const focusFirstColumnNameField = useCallback(() => {
+        const el = columnFieldRegistryRef.current.get("name:0");
+        if (el) focusAndSelectTextInput(el);
+    }, []);
+
+    const focusTableDescriptionField = useCallback(() => {
+        const el = tableDescriptionInputRef.current;
+        if (el) focusAndSelectTextInput(el);
+    }, []);
 
     useEffect(() => {
         if (open && table) {
@@ -200,6 +289,50 @@ export function TableEditDialog({
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [open, onClose]);
+
+    useEffect(() => {
+        setSaveError(null);
+    }, [
+        open,
+        table?.id,
+        draft?.logicalName,
+        draft?.physicalName,
+        draft?.schemaName,
+    ]);
+
+    const handleAttemptSave = useCallback(() => {
+        if (!draft) return;
+        const normalized = normalizeTableForSave(
+            draft,
+            dialect,
+            t,
+            coreOptions,
+            dialogDisplayMode,
+        );
+        if (tablesForDuplicateCheck && tablesForDuplicateCheck.length > 0) {
+            const dupMsg = tableDuplicateSaveErrorMessage(
+                normalized,
+                tablesForDuplicateCheck,
+                t,
+            );
+            if (dupMsg) {
+                setSaveError(dupMsg);
+                return;
+            }
+        }
+        setSaveError(null);
+        onSave(normalized);
+        onClose();
+    }, [
+        coreOptions,
+        dialogDisplayMode,
+        draft,
+        dialect,
+        onClose,
+        onSave,
+        t,
+        tablesForDuplicateCheck,
+    ]);
 
     const title = useMemo(() => {
         if (!draft) return t("dialog.tableEdit.fallbackTitle");
@@ -291,16 +424,16 @@ export function TableEditDialog({
 
     const setColumnName = (index: number, value: string) => {
         if (dialogDisplayMode === "logical") {
-            const col = draft.columns[index];
-            const patch: Partial<ColumnModel> = { logicalName: value };
-            if (col.physicalName === col.logicalName) {
-                patch.physicalName = value;
-            }
-            updateColumn(index, patch);
+            updateColumn(index, { logicalName: value });
             return;
         }
         updateColumn(index, { physicalName: value });
     };
+
+    const oppositeTableNamePlaceholder =
+        dialogDisplayMode === "logical"
+            ? (draft.physicalName?.trim() ?? "")
+            : (draft.logicalName?.trim() ?? "");
 
     const gridClass =
         dialogDisplayMode === "physical"
@@ -401,26 +534,26 @@ export function TableEditDialog({
                                             ? draft.logicalName
                                             : draft.physicalName
                                     }
+                                    placeholder={oppositeTableNamePlaceholder}
                                     onChange={(e) => {
                                         const nextName = e.target.value;
                                         if (dialogDisplayMode === "logical") {
-                                            const next = {
+                                            setDraft({
                                                 ...draft,
                                                 logicalName: nextName,
-                                            };
-                                            if (
-                                                draft.physicalName ===
-                                                draft.logicalName
-                                            ) {
-                                                next.physicalName = nextName;
-                                            }
-                                            setDraft(next);
+                                            });
                                         } else {
                                             setDraft({
                                                 ...draft,
                                                 physicalName: nextName,
                                             });
                                         }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key !== "Tab" || e.shiftKey)
+                                            return;
+                                        e.preventDefault();
+                                        focusTableDescriptionField();
                                     }}
                                 />
                             </div>
@@ -435,6 +568,7 @@ export function TableEditDialog({
                                 </label>
                                 <input
                                     id="erd-t-description"
+                                    ref={tableDescriptionInputRef}
                                     className="erd-input"
                                     value={draft.description ?? ""}
                                     onChange={(e) =>
@@ -444,6 +578,18 @@ export function TableEditDialog({
                                         })
                                     }
                                     placeholder={descriptionCaption}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Tab" && !e.shiftKey) {
+                                            e.preventDefault();
+                                            focusFirstColumnNameField();
+                                            return;
+                                        }
+                                        if (e.key !== "Enter") return;
+                                        if (e.shiftKey) return;
+                                        if (e.nativeEvent.isComposing) return;
+                                        e.preventDefault();
+                                        focusFirstColumnNameField();
+                                    }}
                                 />
                             </div>
                             <input
@@ -607,13 +753,40 @@ export function TableEditDialog({
                                         </span>
                                         <input
                                             className="erd-input"
+                                            ref={(el) =>
+                                                registerColumnField(
+                                                    index,
+                                                    "name",
+                                                    el,
+                                                )
+                                            }
                                             value={getColumnName(index)}
+                                            placeholder={
+                                                dialogDisplayMode === "logical"
+                                                    ? (col.physicalName?.trim() ??
+                                                      "")
+                                                    : (col.logicalName?.trim() ??
+                                                      "")
+                                            }
                                             onChange={(e) =>
                                                 setColumnName(
                                                     index,
                                                     e.target.value,
                                                 )
                                             }
+                                            onKeyDown={(e) => {
+                                                if (e.key !== "Enter")
+                                                    return;
+                                                if (e.shiftKey) return;
+                                                if (e.nativeEvent.isComposing)
+                                                    return;
+                                                e.preventDefault();
+                                                focusNextColumnField(
+                                                    index,
+                                                    "name",
+                                                    draft.columns.length,
+                                                );
+                                            }}
                                             style={{
                                                 fontStyle: col.isForeignKey
                                                     ? "italic"
@@ -625,6 +798,13 @@ export function TableEditDialog({
                                 {dialogDisplayMode === "logical" ? (
                                     <select
                                         className="erd-select"
+                                        ref={(el) =>
+                                            registerColumnField(
+                                                index,
+                                                "type",
+                                                el,
+                                            )
+                                        }
                                         value={col.logicalType}
                                         onChange={(e) => {
                                             const lt = e.target
@@ -639,6 +819,18 @@ export function TableEditDialog({
                                                     ),
                                             });
                                         }}
+                                        onKeyDown={(e) => {
+                                            if (e.key !== "Enter") return;
+                                            if (e.shiftKey) return;
+                                            if (e.nativeEvent.isComposing)
+                                                return;
+                                            e.preventDefault();
+                                            focusNextColumnField(
+                                                index,
+                                                "type",
+                                                draft.columns.length,
+                                            );
+                                        }}
                                     >
                                         {logicalTypes.map((t) => (
                                             <option key={t} value={t}>
@@ -649,6 +841,13 @@ export function TableEditDialog({
                                 ) : (
                                     <input
                                         className="erd-input"
+                                        ref={(el) =>
+                                            registerColumnField(
+                                                index,
+                                                "type",
+                                                el,
+                                            )
+                                        }
                                         value={col.physicalType}
                                         onChange={(e) =>
                                             updateColumn(index, {
@@ -656,6 +855,18 @@ export function TableEditDialog({
                                                     e.target.value.toUpperCase(),
                                             })
                                         }
+                                        onKeyDown={(e) => {
+                                            if (e.key !== "Enter") return;
+                                            if (e.shiftKey) return;
+                                            if (e.nativeEvent.isComposing)
+                                                return;
+                                            e.preventDefault();
+                                            focusNextColumnField(
+                                                index,
+                                                "type",
+                                                draft.columns.length,
+                                            );
+                                        }}
                                         style={{ minWidth: 0 }}
                                     />
                                 )}
@@ -775,6 +986,13 @@ export function TableEditDialog({
                                 </button>
                                 <input
                                     className="erd-input"
+                                    ref={(el) =>
+                                        registerColumnField(
+                                            index,
+                                            "description",
+                                            el,
+                                        )
+                                    }
                                     value={col.description ?? ""}
                                     onChange={(e) =>
                                         updateColumn(index, {
@@ -782,6 +1000,17 @@ export function TableEditDialog({
                                         })
                                     }
                                     placeholder={t("dialog.column.description")}
+                                    onKeyDown={(e) => {
+                                        if (e.key !== "Enter") return;
+                                        if (e.shiftKey) return;
+                                        if (e.nativeEvent.isComposing) return;
+                                        e.preventDefault();
+                                        focusNextColumnField(
+                                            index,
+                                            "description",
+                                            draft.columns.length,
+                                        );
+                                    }}
                                     style={{ minWidth: 0 }}
                                 />
                             </div>
@@ -791,32 +1020,47 @@ export function TableEditDialog({
                     ))}
                     </div>
                 </div>
-                <div className="erd-dialog-footer">
-                    <button
-                        type="button"
-                        className="erd-btn erd-btn--ghost"
-                        onClick={onClose}
-                    >
-                        {t("dialog.cancel")}
-                    </button>
-                    <button
-                        type="button"
-                        className="erd-btn erd-btn--primary"
-                        onClick={() => {
-                            onSave(
-                                normalizeTableForSave(
-                                    draft,
-                                    dialect,
-                                    t,
-                                    coreOptions,
-                                    dialogDisplayMode,
-                                ),
-                            );
-                            onClose();
+                <div
+                    className="erd-dialog-footer"
+                    style={{
+                        flexDirection: "column",
+                        alignItems: "stretch",
+                        gap: 8,
+                    }}
+                >
+                    {saveError ? (
+                        <div
+                            role="alert"
+                            style={{
+                                color: "#b91c1c",
+                                fontSize: 13,
+                            }}
+                        >
+                            {saveError}
+                        </div>
+                    ) : null}
+                    <div
+                        style={{
+                            display: "flex",
+                            gap: 8,
+                            justifyContent: "flex-end",
                         }}
                     >
-                        {t("dialog.save")}
-                    </button>
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--ghost"
+                            onClick={onClose}
+                        >
+                            {t("dialog.cancel")}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--primary"
+                            onClick={handleAttemptSave}
+                        >
+                            {t("dialog.save")}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

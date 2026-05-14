@@ -274,6 +274,21 @@ describe("createDesignerStore + zundo", () => {
         ).toBe(0);
     });
 
+    it("setRelationshipSourceLineRatio clears sourceLineY so ratio applies", () => {
+        const useStore = createDesignerStore({ initialDialect: "postgres" });
+        useStore.getState().addRelationship({
+            id: "r-source",
+            sourceTableId: "s",
+            targetTableId: "t",
+            sourceLineY: 99,
+            sourceLineRatio: 0.2,
+        });
+        useStore.getState().setRelationshipSourceLineRatio("r-source", 0.4);
+        const rel = useStore.getState().doc.model.relationships[0];
+        expect(rel.sourceLineRatio).toBe(0.4);
+        expect(rel.sourceLineY).toBeUndefined();
+    });
+
     it("setRelationshipSourceLineY stores absolute y and supports undo/redo", () => {
         const useStore = createDesignerStore({ initialDialect: "postgres" });
         useStore.getState().addRelationship({
