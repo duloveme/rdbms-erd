@@ -18,6 +18,10 @@ const TABLE_META_LABELS = [
 ] as const;
 /** ExcelJS 열 너비: Type / Default Value 공통 */
 const EXCEL_TYPE_COL_WIDTH = 16.5;
+/** Field Name(Physical): 긴 식별자·PascalCase 컬럼명 표시용 */
+const EXCEL_FIELD_PHYSICAL_COL_WIDTH = 24;
+/** Field Name(Logical): 한글 등 논리명 표시용(Physical보다 약간 넓게) */
+const EXCEL_FIELD_LOGICAL_COL_WIDTH = 26;
 
 /** 컬럼 영역 헤더 */
 const COLUMN_HEADERS = [
@@ -177,8 +181,8 @@ function yn(v: boolean | undefined): string {
 
 function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
     // 열 너비는 상수로 유지 (ExcelJS character width 단위)
-    ws.getColumn(COL_IDX.fieldPhysical).width = 17;
-    ws.getColumn(COL_IDX.fieldLogical).width = 17;
+    ws.getColumn(COL_IDX.fieldPhysical).width = EXCEL_FIELD_PHYSICAL_COL_WIDTH;
+    ws.getColumn(COL_IDX.fieldLogical).width = EXCEL_FIELD_LOGICAL_COL_WIDTH;
     ws.getColumn(COL_IDX.type).width = EXCEL_TYPE_COL_WIDTH;
     ws.getColumn(COL_IDX.defaultValue).width = EXCEL_TYPE_COL_WIDTH;
     ws.getColumn(COL_IDX.pk).width = 4.5;
@@ -219,16 +223,17 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
         styleHeaderCell(cell, center ? "center" : "left");
     });
 
+    const columns = Array.isArray(table.columns) ? table.columns : [];
     const columnDataRowCount = Math.max(
         COLUMN_DATA_ROW_MIN,
-        table.columns.length,
+        columns.length,
     );
 
     // --- 컬럼 데이터: 최소 20행, 컬럼이 더 많으면 그만큼 확장 ---
     for (let i = 0; i < columnDataRowCount; i++) {
         const rowIndex = COLUMN_FIRST_DATA_ROW + i;
         const row = ws.getRow(rowIndex);
-        const col = table.columns[i];
+        const col = columns[i];
         const alt = i % 2 === 1;
         const values: [string, string, string, string, string, string, string] =
             col

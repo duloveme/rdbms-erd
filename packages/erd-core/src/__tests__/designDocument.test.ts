@@ -34,6 +34,30 @@ describe("DesignDocument", () => {
     expect(parseDesign(json).model.dialect).toBe("oracle");
   });
 
+  it("fills missing column defaultValue with empty string on validate", () => {
+    const raw = JSON.parse(serializeDesign(createEmptyDesign("postgres"))) as Record<string, unknown>;
+    const model = raw.model as Record<string, unknown>;
+    model.tables = [
+      {
+        id: "t1",
+        logicalName: "L",
+        physicalName: "P",
+        columns: [
+          {
+            id: "c1",
+            logicalName: "n",
+            physicalName: "n",
+            logicalType: "TEXT",
+            physicalType: "VARCHAR(1)",
+            nullable: true,
+          },
+        ],
+      },
+    ];
+    const out = validateDesignDocument(raw);
+    expect(out.model.tables[0]!.columns[0]!.defaultValue).toBe("");
+  });
+
   it("createEmptyDesign defaults to mssql", () => {
     expect(createEmptyDesign().model.dialect).toBe("mssql");
   });

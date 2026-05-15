@@ -121,6 +121,22 @@ export function migrateLegacyFkLineVisibility(model: DesignModel): void {
     }
 }
 
+/**
+ * 구버전·수동 JSON 등에서 `defaultValue` 키가 없는 컬럼에 빈 문자열을 넣어 형태를 통일한다.
+ * DDL·엑셀은 기존과 같이 빈 값은 기본값 없음으로 취급한다.
+ */
+function normalizeColumnDefaultValues(model: DesignModel): void {
+    for (const table of model.tables) {
+        const cols = table.columns;
+        if (!Array.isArray(cols)) continue;
+        for (const col of cols) {
+            if (col.defaultValue === undefined || col.defaultValue === null) {
+                col.defaultValue = "";
+            }
+        }
+    }
+}
+
 export interface IndexModel {
     id: string;
     tableId: string;
@@ -930,6 +946,7 @@ export function validateDesignDocument(
 
     const doc = input as unknown as DesignDocument;
     migrateLegacyFkLineVisibility(doc.model);
+    normalizeColumnDefaultValues(doc.model);
     return doc;
 }
 
