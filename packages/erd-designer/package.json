@@ -1,6 +1,6 @@
 {
     "name": "@rdbms-erd/designer",
-    "version": "0.1.22",
+    "version": "0.1.25",
     "license": "MIT",
     "keywords": [
         "erd",
@@ -38,7 +38,7 @@
         "react-dom": "19.2.5"
     },
     "dependencies": {
-        "@rdbms-erd/core": "0.1.22",
+        "@rdbms-erd/core": "0.1.25",
         "@xyflow/react": "12.10.2",
         "exceljs": "^4.4.0",
         "html-to-image": "^1.11.13",

@@ -640,7 +640,7 @@ export function TableEditDialog({
                         </span>
                         {dialogDisplayMode === "physical" ? (
                             <span className="erd-dialog-col-head-text">
-                                {t("dialog.column.default")}
+                                {t("dialog.column.defaultValue")}
                             </span>
                         ) : null}
                         <span
@@ -873,8 +873,13 @@ export function TableEditDialog({
                                 {dialogDisplayMode === "physical" ? (
                                     <input
                                         className="erd-input"
+                                        aria-label={t(
+                                            "dialog.column.defaultValue",
+                                        )}
                                         value={col.defaultValue ?? ""}
-                                        placeholder="DEFAULT"
+                                        placeholder={t(
+                                            "dialog.column.defaultValuePlaceholder",
+                                        )}
                                         onChange={(e) =>
                                             updateColumn(index, {
                                                 defaultValue: e.target.value,

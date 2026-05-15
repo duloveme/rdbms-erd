@@ -10,17 +10,42 @@ const META_VALUE_FILL = "FFF8FAFC";
 const COLUMN_BODY_ALT = "FFF1F5F9";
 
 /** 테이블 메타 라벨 (세로, A열) */
-const TABLE_META_LABELS = ["Schema", "Name", "Description"] as const;
+const TABLE_META_LABELS = [
+    "Schema",
+    "Physical Name",
+    "Logical Name",
+    "Description",
+] as const;
+/** ExcelJS 열 너비: Type / Default Value 공통 */
+const EXCEL_TYPE_COL_WIDTH = 16.5;
+
 /** 컬럼 영역 헤더 */
-const COLUMN_HEADERS = ["Name", "Type", "PK", "Nullable", "Description"] as const;
+const COLUMN_HEADERS = [
+    "Field Name(Physical)",
+    "Field Name(Logical)",
+    "Type",
+    "Default Value",
+    "PK",
+    "Nullable",
+    "Description",
+] as const;
 
 /** 컬럼 데이터 블록 최소 행 수(컬럼이 적어도 빈 행까지 동일 스타일 유지). */
 const COLUMN_DATA_ROW_MIN = 20;
-/** 테이블 메타 3행 + 빈 1행 */
-const COLUMN_HEADER_ROW = 5;
-const COLUMN_FIRST_DATA_ROW = 6;
+/** 테이블 메타 4행 + 빈 1행 */
+const COLUMN_HEADER_ROW = 6;
+const COLUMN_FIRST_DATA_ROW = 7;
 
-const COL_IDX = { name: 1, type: 2, pk: 3, nullable: 4, description: 5 } as const;
+/** 1-based 열 인덱스 (메타 라벨은 A열, 값은 B~마지막 열 병합). */
+const COL_IDX = {
+    fieldPhysical: 1,
+    fieldLogical: 2,
+    type: 3,
+    defaultValue: 4,
+    pk: 5,
+    nullable: 6,
+    description: 7,
+} as const;
 
 const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>]/g;
 
@@ -151,29 +176,37 @@ function yn(v: boolean | undefined): string {
 }
 
 function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
-    // Name, Type, PK(좁음), Nullable(헤더 글자에 맞춤), Description(넓게)
-    ws.getColumn(COL_IDX.name).width = 22;
-    ws.getColumn(COL_IDX.type).width = 22;
+    // 열 너비는 상수로 유지 (ExcelJS character width 단위)
+    ws.getColumn(COL_IDX.fieldPhysical).width = 17;
+    ws.getColumn(COL_IDX.fieldLogical).width = 17;
+    ws.getColumn(COL_IDX.type).width = EXCEL_TYPE_COL_WIDTH;
+    ws.getColumn(COL_IDX.defaultValue).width = EXCEL_TYPE_COL_WIDTH;
     ws.getColumn(COL_IDX.pk).width = 4.5;
     ws.getColumn(COL_IDX.nullable).width = 10.5;
-    ws.getColumn(COL_IDX.description).width = 52;
+    ws.getColumn(COL_IDX.description).width = 42;
 
-    // --- 테이블 메타: A열 라벨 / B열 값 (세로 3행) ---
+    // --- 테이블 메타: A열 라벨 / B~G열 값 병합 (세로 4행) ---
     const metaValues = [
         table.schemaName?.trim() ?? "",
-        table.physicalName?.trim() ?? "",
+        (table.physicalName ?? "").trim(),
+        (table.logicalName ?? "").trim(),
         table.description?.trim() ?? "",
     ];
     TABLE_META_LABELS.forEach((label, i) => {
         const rowNum = i + 1;
         const row = ws.getRow(rowNum);
-        const labelCell = row.getCell(COL_IDX.name);
+        const labelCell = row.getCell(COL_IDX.fieldPhysical);
         labelCell.value = label;
         styleHeaderCell(labelCell, "left");
-        const valueMaster = row.getCell(COL_IDX.type);
+        const valueMaster = row.getCell(COL_IDX.fieldLogical);
         valueMaster.value = metaValues[i] ?? "";
         styleMetaValueCell(valueMaster);
-        ws.mergeCells(rowNum, COL_IDX.type, rowNum, COL_IDX.description);
+        ws.mergeCells(
+            rowNum,
+            COL_IDX.fieldLogical,
+            rowNum,
+            COL_IDX.description,
+        );
     });
 
     // --- 컬럼 영역 헤더 ---
@@ -197,15 +230,18 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
         const row = ws.getRow(rowIndex);
         const col = table.columns[i];
         const alt = i % 2 === 1;
-        const values: [string, string, string, string, string] = col
-            ? [
-                  col.physicalName ?? "",
-                  col.physicalType ?? "",
-                  yn(col.isPrimaryKey),
-                  yn(col.nullable),
-                  col.description?.trim() ?? "",
-              ]
-            : ["", "", "", "", ""];
+        const values: [string, string, string, string, string, string, string] =
+            col
+                ? [
+                      (col.physicalName ?? "").trim(),
+                      (col.logicalName ?? "").trim(),
+                      col.physicalType ?? "",
+                      (col.defaultValue ?? "").trim(),
+                      yn(col.isPrimaryKey),
+                      yn(col.nullable),
+                      col.description?.trim() ?? "",
+                  ]
+                : ["", "", "", "", "", "", ""];
         values.forEach((v, j) => {
             const colIndex = j + 1;
             const cell = row.getCell(colIndex);
@@ -216,7 +252,7 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
 }
 
 /**
- * 테이블마다 워크시트 1개, 물리명·물리타입 중심으로 `.xlsx` 다운로드(브라우저).
+ * 테이블마다 워크시트 1개, Field Name(Physical/Logical), Type, Default Value, PK 등으로 `.xlsx` 다운로드(브라우저).
  * 파일명: `프로젝트명_YYYY-MM-DD.xlsx` (`projectName`이 비거나 정리 후 비면 `project`).
  */
 export async function exportTablesToXlsxFile(

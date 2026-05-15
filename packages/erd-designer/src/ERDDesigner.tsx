@@ -863,10 +863,17 @@ const TableNode = memo(function TableNode({
                             col,
                             displayMode,
                         );
+                        const defTrim = (col.defaultValue ?? "").trim();
                         const secondary =
                             displayMode === "logical"
                                 ? col.logicalType
-                                : col.physicalType;
+                                : defTrim.length > 0
+                                  ? `${col.physicalType} = ${
+                                        defTrim.length > 22
+                                            ? `${defTrim.slice(0, 22)}...`
+                                            : defTrim
+                                    }`
+                                  : col.physicalType;
                         const rowFg = col.color
                             ? getHeaderTextColor(col.color)
                             : undefined;
@@ -1870,6 +1877,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 logicalName: sourceColumn.logicalName,
                                 physicalName: sourceColumn.physicalName,
                                 logicalType: sourceColumn.logicalType,
+                                defaultValue: sourceColumn.defaultValue,
                                 nullable: true,
                                 isForeignKey: true,
                                 referencesPrimaryColumnId: sourceColumn.id,
