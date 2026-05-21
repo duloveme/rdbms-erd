@@ -5,7 +5,6 @@ import {
     createColumn,
     dialectSupportsSchema,
     defaultPhysicalType,
-    inferLogicalTypeFromPhysical,
     type ColumnModel,
     LOGICAL_DATA_TYPES,
     LogicalDataType,
@@ -34,6 +33,14 @@ import type { CanvasDisplayMode } from "./ERDDesigner";
 import { createId } from "./id";
 import { useErdTranslator } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
+import {
+    columnNamesBlank,
+    normalizeTableEditForSave,
+    patchColumnOnPhysicalTypeUserEdit,
+    syncTableEditDraftOnOpen,
+    syncTableEditDraftOnSwitchToLogical,
+    syncTableEditDraftOnSwitchToPhysical,
+} from "./tableEditDraftSync";
 
 export interface TableEditDialogProps {
     open: boolean;
@@ -49,6 +56,8 @@ export interface TableEditDialogProps {
     coreOptions?: CoreDbMetaOptions;
     /** 저장 시 이 목록과 논리명·물리명(스키마+물리) 중복을 검사한다. 현재 `table.id`는 제외한다. */
     tablesForDuplicateCheck?: TableModel[];
+    /** @deprecated Prefer `coreOptions.defaultPhysicalTypes`. Merged into `coreOptions` when set. */
+    defaultPhysicalTypes?: Partial<Record<LogicalDataType, string>>;
 }
 
 type ColumnFocusField = "name" | "type" | "description";
@@ -101,10 +110,6 @@ function tableDuplicateSaveErrorMessage(
     return null;
 }
 
-function columnNamesBlank(col: ColumnModel): boolean {
-    return !col.logicalName?.trim() && !col.physicalName?.trim();
-}
-
 function createBlankColumn(
     dialect: RdbmsDialect,
     coreOptions?: CoreDbMetaOptions,
@@ -141,68 +146,9 @@ function ensureTrailingBlankColumn(
     return { ...draft, columns: cols };
 }
 
-function normalizeTableForSave(
-    draft: TableModel,
-    dialect: RdbmsDialect,
-    tr: (key: I18nKey, vars?: I18nVars) => string,
-    coreOptions: CoreDbMetaOptions | undefined,
-    displayMode: CanvasDisplayMode,
-): TableModel {
-    const filtered = draft.columns.filter((c) => !columnNamesBlank(c));
-    const baseColumns =
-        filtered.length > 0
-            ? filtered
-            : [
-                  createColumn(
-                      dialect,
-                      {
-                          id: createId("col"),
-                          logicalName: tr("designer.defaultColumnName"),
-                          logicalType: "TEXT",
-                      },
-                      coreOptions,
-                  ),
-              ];
-
-    const physicalNameTrim = draft.physicalName?.trim() ?? "";
-    const logicalNameTrim = draft.logicalName?.trim() ?? "";
-    let nextLogicalTableName = draft.logicalName;
-    if (displayMode === "physical" && !logicalNameTrim && physicalNameTrim) {
-        nextLogicalTableName = physicalNameTrim;
-    }
-
-    const columns =
-        displayMode === "physical"
-            ? baseColumns.map((c) => {
-                  const pName = c.physicalName?.trim() ?? "";
-                  const lName = c.logicalName?.trim() ?? "";
-                  const physType = c.physicalType?.trim() ?? "";
-                  let logicalName = c.logicalName;
-                  if (!lName && pName) {
-                      logicalName = pName;
-                  }
-                  const logicalType =
-                      physType.length > 0
-                          ? inferLogicalTypeFromPhysical(
-                                dialect,
-                                physType,
-                                coreOptions,
-                            )
-                          : c.logicalType;
-                  return {
-                      ...c,
-                      logicalName,
-                      logicalType,
-                  };
-              })
-            : baseColumns;
-
-    return {
-        ...draft,
-        logicalName: nextLogicalTableName,
-        columns,
-    };
-}
+type TableEditPendingConfirm =
+    | { kind: "close" }
+    | { kind: "deleteColumn"; index: number };
 
 export function TableEditDialog({
     open,
@@ -216,8 +162,22 @@ export function TableEditDialog({
     t: tProp,
     coreOptions,
     tablesForDuplicateCheck,
+    defaultPhysicalTypes: defaultPhysicalTypesProp,
 }: TableEditDialogProps) {
     const { t } = useErdTranslator({ locale, translations, t: tProp });
+    const resolvedCoreOptions = useMemo(
+        (): CoreDbMetaOptions | undefined =>
+            defaultPhysicalTypesProp
+                ? {
+                      ...coreOptions,
+                      defaultPhysicalTypes: {
+                          ...coreOptions?.defaultPhysicalTypes,
+                          ...defaultPhysicalTypesProp,
+                      },
+                  }
+                : coreOptions,
+        [coreOptions, defaultPhysicalTypesProp],
+    );
     const [draft, setDraft] = useState<TableModel | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
     const [dialogDisplayMode, setDialogDisplayMode] =
@@ -225,8 +185,11 @@ export function TableEditDialog({
     const [draggingColumnIndex, setDraggingColumnIndex] = useState<
         number | null
     >(null);
+    const [pendingConfirm, setPendingConfirm] =
+        useState<TableEditPendingConfirm | null>(null);
     const columnFieldRegistryRef = useRef(new Map<string, HTMLElement>());
     const tableDescriptionInputRef = useRef<HTMLInputElement | null>(null);
+    const [userEdited, setUserEdited] = useState(false);
 
     const registerColumnField = useCallback(
         (row: number, field: ColumnFocusField, el: HTMLElement | null) => {
@@ -264,15 +227,21 @@ export function TableEditDialog({
 
     useEffect(() => {
         if (open && table) {
-            setDraft(
-                ensureTrailingBlankColumn(
-                    cloneTable(table),
-                    dialect,
-                    coreOptions,
-                ),
+            let next = ensureTrailingBlankColumn(
+                cloneTable(table),
+                dialect,
+                resolvedCoreOptions,
             );
+            next = syncTableEditDraftOnOpen(
+                next,
+                dialect,
+                resolvedCoreOptions,
+                displayMode,
+            );
+            setDraft(next);
+            setUserEdited(false);
         }
-    }, [coreOptions, open, table, dialect]);
+    }, [displayMode, dialect, open, resolvedCoreOptions, table]);
 
     useEffect(() => {
         if (!open) return;
@@ -280,15 +249,77 @@ export function TableEditDialog({
     }, [displayMode, open]);
 
     useEffect(() => {
+        if (!open) setPendingConfirm(null);
+    }, [open]);
+
+    const switchDialogToLogicalMode = useCallback(() => {
+        setDraft((d) =>
+            d
+                ? syncTableEditDraftOnSwitchToLogical(
+                      d,
+                      dialect,
+                      resolvedCoreOptions,
+                  )
+                : d,
+        );
+        setDialogDisplayMode("logical");
+    }, [dialect, resolvedCoreOptions]);
+
+    const switchDialogToPhysicalMode = useCallback(() => {
+        setDraft((d) =>
+            d
+                ? syncTableEditDraftOnSwitchToPhysical(
+                      d,
+                      dialect,
+                      resolvedCoreOptions,
+                  )
+                : d,
+        );
+        setDialogDisplayMode("physical");
+    }, [dialect, resolvedCoreOptions]);
+
+    const requestClose = useCallback(() => {
+        if (!userEdited) {
+            onClose();
+            return;
+        }
+        setPendingConfirm({ kind: "close" });
+    }, [onClose, userEdited]);
+
+    useEffect(() => {
         if (!open) return;
         const onKeyDown = (e: KeyboardEvent) => {
+            const mod = e.metaKey || e.ctrlKey;
+            if (
+                mod &&
+                e.shiftKey &&
+                (e.key === "ArrowUp" || e.key === "ArrowDown")
+            ) {
+                e.preventDefault();
+                if (e.key === "ArrowUp") {
+                    switchDialogToLogicalMode();
+                } else {
+                    switchDialogToPhysicalMode();
+                }
+                return;
+            }
             if (e.key !== "Escape") return;
             e.preventDefault();
-            onClose();
+            if (pendingConfirm) {
+                setPendingConfirm(null);
+                return;
+            }
+            requestClose();
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [open, onClose]);
+    }, [
+        open,
+        pendingConfirm,
+        requestClose,
+        switchDialogToLogicalMode,
+        switchDialogToPhysicalMode,
+    ]);
 
     useEffect(() => {
         setSaveError(null);
@@ -302,11 +333,10 @@ export function TableEditDialog({
 
     const handleAttemptSave = useCallback(() => {
         if (!draft) return;
-        const normalized = normalizeTableForSave(
+        const normalized = normalizeTableEditForSave(
             draft,
             dialect,
-            t,
-            coreOptions,
+            resolvedCoreOptions,
             dialogDisplayMode,
         );
         if (tablesForDuplicateCheck && tablesForDuplicateCheck.length > 0) {
@@ -330,6 +360,7 @@ export function TableEditDialog({
         dialect,
         onClose,
         onSave,
+        resolvedCoreOptions,
         t,
         tablesForDuplicateCheck,
     ]);
@@ -345,7 +376,10 @@ export function TableEditDialog({
 
     if (!open || !table || !draft) return null;
 
+    const markUserEdited = () => setUserEdited(true);
+
     const updateColumn = (index: number, patch: Partial<ColumnModel>) => {
+        markUserEdited();
         setDraft((d) => {
             if (!d) return d;
             const cols = [...d.columns];
@@ -353,12 +387,13 @@ export function TableEditDialog({
             return ensureTrailingBlankColumn(
                 { ...d, columns: cols },
                 dialect,
-                coreOptions,
+                resolvedCoreOptions,
             );
         });
     };
 
     const moveColumn = (index: number, dir: -1 | 1) => {
+        markUserEdited();
         setDraft((d) => {
             if (!d) return d;
             const j = index + dir;
@@ -373,12 +408,13 @@ export function TableEditDialog({
             return ensureTrailingBlankColumn(
                 { ...d, columns: cols },
                 dialect,
-                coreOptions,
+                resolvedCoreOptions,
             );
         });
     };
 
     const moveColumnTo = (fromIndex: number, toIndex: number) => {
+        markUserEdited();
         setDraft((d) => {
             if (!d) return d;
             if (fromIndex < 0 || fromIndex >= d.columns.length) return d;
@@ -399,20 +435,25 @@ export function TableEditDialog({
             return ensureTrailingBlankColumn(
                 { ...d, columns: cols },
                 dialect,
-                coreOptions,
+                resolvedCoreOptions,
             );
         });
     };
 
     const removeColumn = (index: number) => {
+        markUserEdited();
         setDraft((d) => {
             if (!d || d.columns.length <= 1) return d;
             return ensureTrailingBlankColumn(
                 { ...d, columns: d.columns.filter((_, i) => i !== index) },
                 dialect,
-                coreOptions,
+                resolvedCoreOptions,
             );
         });
+    };
+
+    const requestRemoveColumn = (index: number) => {
+        setPendingConfirm({ kind: "deleteColumn", index });
     };
 
     const nameCaption = t("dialog.tableName");
@@ -439,13 +480,118 @@ export function TableEditDialog({
         dialogDisplayMode === "physical"
             ? "erd-dialog-col-grid erd-dialog-col-grid--physical"
             : "erd-dialog-col-grid erd-dialog-col-grid--logical";
-    const supportsSchema = dialectSupportsSchema(dialect, coreOptions);
+    const supportsSchema = dialectSupportsSchema(dialect, resolvedCoreOptions);
     const logicalTypes =
-        resolveDialectMetas(coreOptions)
+        resolveDialectMetas(resolvedCoreOptions)
             .find((m) => m.id === dialect)
             ?.logicalTypes.map((lt) => lt.id) ?? LOGICAL_DATA_TYPES;
 
+    const confirmDialog =
+        pendingConfirm?.kind === "close" ? (
+            <div
+                className="erd-dialog-backdrop erd-dialog-backdrop--nested"
+                role="presentation"
+            >
+                <div
+                    className="erd-dialog"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="erd-table-edit-close-confirm-title"
+                    style={{ width: "min(520px, 100%)", height: "auto" }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div className="erd-dialog-header">
+                        <span id="erd-table-edit-close-confirm-title">
+                            {t("dialog.confirm.tableEdit.closeTitle")}
+                        </span>
+                    </div>
+                    <div className="erd-dialog-body">
+                        <p
+                            style={{
+                                margin: 0,
+                                fontSize: 14,
+                                whiteSpace: "pre-line",
+                                lineHeight: 1.45,
+                            }}
+                        >
+                            {t("dialog.confirm.tableEdit.close")}
+                        </p>
+                    </div>
+                    <div className="erd-dialog-footer">
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--primary"
+                            onClick={() => {
+                                setPendingConfirm(null);
+                                onClose();
+                            }}
+                        >
+                            {t("dialog.confirm.tableEdit.discard")}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--ghost"
+                            onClick={() => setPendingConfirm(null)}
+                        >
+                            {t("dialog.cancel")}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        ) : pendingConfirm?.kind === "deleteColumn" ? (
+            <div
+                className="erd-dialog-backdrop erd-dialog-backdrop--nested"
+                role="presentation"
+            >
+                <div
+                    className="erd-dialog"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="erd-table-edit-delete-col-title"
+                    style={{ width: "min(520px, 100%)", height: "auto" }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div className="erd-dialog-header">
+                        <span id="erd-table-edit-delete-col-title">
+                            {t("dialog.confirm.columnDelete.title")}
+                        </span>
+                    </div>
+                    <div className="erd-dialog-body">
+                        <p
+                            style={{
+                                margin: 0,
+                                fontSize: 14,
+                                lineHeight: 1.45,
+                            }}
+                        >
+                            {t("dialog.confirm.columnDelete")}
+                        </p>
+                    </div>
+                    <div className="erd-dialog-footer">
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--primary"
+                            onClick={() => {
+                                removeColumn(pendingConfirm.index);
+                                setPendingConfirm(null);
+                            }}
+                        >
+                            {t("dialog.confirm.columnDelete.confirm")}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--ghost"
+                            onClick={() => setPendingConfirm(null)}
+                        >
+                            {t("dialog.cancel")}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        ) : null;
+
     return (
+        <>
         <div className="erd-dialog-backdrop" role="presentation">
             <div
                 className="erd-dialog erd-dialog--table-edit"
@@ -459,14 +605,16 @@ export function TableEditDialog({
                         <button
                             type="button"
                             className={`erd-dialog-mode-btn${dialogDisplayMode === "logical" ? " erd-dialog-mode-btn--active" : ""}`}
-                            onClick={() => setDialogDisplayMode("logical")}
+                            title={t("dialog.tableEdit.modeLogicalWithShortcut")}
+                            onClick={switchDialogToLogicalMode}
                         >
                             {t("toolbar.mode.logical")}
                         </button>
                         <button
                             type="button"
                             className={`erd-dialog-mode-btn${dialogDisplayMode === "physical" ? " erd-dialog-mode-btn--active" : ""}`}
-                            onClick={() => setDialogDisplayMode("physical")}
+                            title={t("dialog.tableEdit.modePhysicalWithShortcut")}
+                            onClick={switchDialogToPhysicalMode}
                         >
                             {t("toolbar.mode.physical")}
                         </button>
@@ -474,7 +622,7 @@ export function TableEditDialog({
                             type="button"
                             className="erd-node-header-btn"
                             aria-label={t("dialog.close")}
-                            onClick={onClose}
+                            onClick={requestClose}
                         >
                             <X size={18} />
                         </button>
@@ -509,12 +657,13 @@ export function TableEditDialog({
                                         id="erd-t-schema"
                                         className="erd-input"
                                         value={draft.schemaName ?? ""}
-                                        onChange={(e) =>
+                                        onChange={(e) => {
+                                            markUserEdited();
                                             setDraft({
                                                 ...draft,
                                                 schemaName: e.target.value,
-                                            })
-                                        }
+                                            });
+                                        }}
                                         placeholder={t("dialog.tableSchema")}
                                     />
                                 </div>
@@ -536,6 +685,7 @@ export function TableEditDialog({
                                     }
                                     placeholder={oppositeTableNamePlaceholder}
                                     onChange={(e) => {
+                                        markUserEdited();
                                         const nextName = e.target.value;
                                         if (dialogDisplayMode === "logical") {
                                             setDraft({
@@ -571,12 +721,13 @@ export function TableEditDialog({
                                     ref={tableDescriptionInputRef}
                                     className="erd-input"
                                     value={draft.description ?? ""}
-                                    onChange={(e) =>
+                                    onChange={(e) => {
+                                        markUserEdited();
                                         setDraft({
                                             ...draft,
                                             description: e.target.value,
-                                        })
-                                    }
+                                        });
+                                    }}
                                     placeholder={descriptionCaption}
                                     onKeyDown={(e) => {
                                         if (e.key === "Tab" && !e.shiftKey) {
@@ -596,12 +747,13 @@ export function TableEditDialog({
                                 type="color"
                                 aria-label={t("dialog.tableColor")}
                                 value={draft.color ?? "#e8f0ff"}
-                                onChange={(e) =>
+                                onChange={(e) => {
+                                    markUserEdited();
                                     setDraft({
                                         ...draft,
                                         color: e.target.value,
-                                    })
-                                }
+                                    });
+                                }}
                                 style={{
                                     width: 42,
                                     height: 36,
@@ -615,9 +767,10 @@ export function TableEditDialog({
                                 className="erd-dialog-icon-btn"
                                 aria-label={t("dialog.tableColor.clear")}
                                 title={t("dialog.tableColor.clear")}
-                                onClick={() =>
-                                    setDraft({ ...draft, color: undefined })
-                                }
+                                onClick={() => {
+                                    markUserEdited();
+                                    setDraft({ ...draft, color: undefined });
+                                }}
                             >
                                 <Eraser size={16} />
                             </button>
@@ -815,7 +968,7 @@ export function TableEditDialog({
                                                     defaultPhysicalType(
                                                         dialect,
                                                         lt,
-                                                        coreOptions,
+                                                        resolvedCoreOptions,
                                                     ),
                                             });
                                         }}
@@ -851,8 +1004,11 @@ export function TableEditDialog({
                                         value={col.physicalType}
                                         onChange={(e) =>
                                             updateColumn(index, {
-                                                physicalType:
-                                                    e.target.value.toUpperCase(),
+                                                ...patchColumnOnPhysicalTypeUserEdit(
+                                                    dialect,
+                                                    e.target.value,
+                                                    resolvedCoreOptions,
+                                                ),
                                             })
                                         }
                                         onKeyDown={(e) => {
@@ -960,7 +1116,7 @@ export function TableEditDialog({
                                         className="erd-dialog-icon-btn erd-dialog-icon-btn--row erd-dialog-icon-btn--danger"
                                         aria-label={t("dialog.column.delete")}
                                         disabled={draft.columns.length <= 1}
-                                        onClick={() => removeColumn(index)}
+                                        onClick={() => requestRemoveColumn(index)}
                                     >
                                         <Trash2 size={12} />
                                     </button>
@@ -1054,7 +1210,7 @@ export function TableEditDialog({
                         <button
                             type="button"
                             className="erd-btn erd-btn--ghost"
-                            onClick={onClose}
+                            onClick={requestClose}
                         >
                             {t("dialog.cancel")}
                         </button>
@@ -1069,5 +1225,7 @@ export function TableEditDialog({
                 </div>
             </div>
         </div>
+        {confirmDialog}
+        </>
     );
 }

@@ -9,7 +9,9 @@ It uses `@xyflow/react` internally and is intended to be used with `@rdbms-erd/c
 npm i @rdbms-erd/designer @rdbms-erd/core
 ```
 
-`DesignDocument` 및 `createEmptyDesign` / `serializeDesign` / `parseDesign` 등은 **`@rdbms-erd/core`에 정의**되어 있으며, 편의를 위해 **`@rdbms-erd/designer`에서도 동일 심볼을 재export**합니다.
+`DesignDocument` 및 `createEmptyDesign` / `serializeDesign` / `parseDesign` / `createId` / `ensureUniqueDesignIds` 등은 **`@rdbms-erd/core`에 정의**되어 있으며, 편의를 위해 **`@rdbms-erd/designer`에서도 동일 심볼을 재export**합니다.
+
+Host DB import 시 테이블마다 `createId("table")`로 **문서 전역 유일** id를 부여하세요. `table-1`을 여러 테이블에 재사용하면 캔버스에 노드가 하나만 보입니다. `ERDDesigner`는 `value` 로드 시 중복 id를 자동 정규화합니다.
 
 **Logical / physical type mapping** (also re-exported from this package): `LOGICAL_DATA_TYPES`, type `LogicalDataType`, `inferLogicalTypeFromPhysical` (physical string → logical for a dialect), `defaultPhysicalType` (logical → default physical), `convertPhysicalTypeByLogicalType` (keep logical + reshape physical for another dialect), `applyLogicalTypeChange`, `convertDesignDialect`, `createColumn`.
 
@@ -59,6 +61,7 @@ Parent must provide explicit height (`100vh`, flex child with `minHeight: 0`, et
     - `onRequestNewEr?: (currentDialect: RdbmsDialect) => void`
     - `onRequestCreateTable?: (payload: CreateTableRequestPayload) => void`
 - View/control:
+    - `defaultPhysicalTypes?: Partial<Record<LogicalDataType, string>>` — 논리→물리 기본 DataType(테이블 편집·`defaultPhysicalType`). `TEXT` 미지정 시 `VARCHAR(20)`. `hostMetas` 방언 기본보다 우선.
     - `locale?: string`
     - `translations?: Partial<Record<I18nKey, string>>`
     - `t?: (key: I18nKey, vars?: I18nVars) => string`
@@ -140,6 +143,7 @@ const hostMetas = [
 
 ## Notes
 
+- Toolbar **Add table** (`Ctrl/Cmd+Shift+E`): after save, the new table is placed at the **center of the currently visible pane** (uses React Flow `getViewport()`, so pan/zoom does not affect placement). Edge-drop still uses the drop point; paste uses clipboard positions + offset.
 - `designer.css` and React Flow style are imported by package entry.
 - DDL hooks are runtime-only values and are not serialized in design JSON.
 - Relationship edge customization state is serialized in document relationships:

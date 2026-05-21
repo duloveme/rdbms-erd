@@ -476,6 +476,10 @@
   padding: 24px;
 }
 
+.erd-dialog-backdrop--nested {
+  z-index: 60;
+}
+
 .erd-dialog {
   /* 컬럼 설명 열 확대로 인해 다이얼로그 폭 확장 */
   width: min(920px, 100%);

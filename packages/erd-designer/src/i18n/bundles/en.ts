@@ -75,8 +75,19 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.confirm": "Create relationship",
   "dialog.confirm.unsaved.title": "You have unsaved changes.",
   "dialog.confirm.unsaved.newEr": "Current ER has unsaved changes. Continue and create a new ER?",
+  "dialog.confirm.tableEdit.closeTitle": "Close table editor",
+  "dialog.confirm.tableEdit.close":
+    "You have unsaved changes. Close without saving?",
+  "dialog.confirm.tableEdit.discard": "Close without saving",
+  "dialog.confirm.columnDelete.title": "Delete column",
+  "dialog.confirm.columnDelete": "Delete this column?",
+  "dialog.confirm.columnDelete.confirm": "Delete",
   "dialog.confirm.dialectChange": "Changing the DB type may alter column types. Continue and convert to compatible types?",
   "dialog.relationshipDelete.title": "Delete relationship",
+  "dialog.tableDelete.title": "Delete table",
+  "dialog.tableDelete.messageOne": "Delete this table?",
+  "dialog.tableDelete.message": "Delete {{count}} selected table(s)?",
+  "dialog.tableDelete.confirm": "Delete",
   "dialog.relationshipDelete.message":
     "Delete this relationship?\nYes: delete relationship and FK columns\nNo: delete relationship only\nCancel: keep everything",
   "dialog.yes": "Yes",
@@ -89,6 +100,8 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.tableEdit.titleWithName": "Edit table — {{name}}",
   "dialog.tableEdit.errorDuplicateLogical":
     "Another table already uses this logical name.",
+  "dialog.tableEdit.modeLogicalWithShortcut": "Logical (Ctrl+Shift+↑)",
+  "dialog.tableEdit.modePhysicalWithShortcut": "Physical (Ctrl+Shift+↓)",
   "dialog.tableEdit.errorDuplicatePhysical":
     "Another table already uses this physical name (including schema).",
   "dialog.tableName": "Table name",

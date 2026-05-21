@@ -20,6 +20,7 @@ Entry point: `exports["."] -> ./src/index.ts`
 | `undo` | `() => void` | Calls temporal undo |
 | `redo` | `() => void` | Calls temporal redo |
 | `addTableAt` | `(table, x, y) => void` | Adds table at flow coordinates when a design is active |
+| *(built-in toolbar add)* | — | Saves via table dialog at **viewport center** (not random); edge-drop uses `flowX`/`flowY` from `onRequestCreateTable` payload when host handles create |
 | `connectWithForeignKey` | `(sourceTableId, targetTableId, sourceColumnId?) => void` | Creates FK relation(s) and missing FK columns when needed |
 
 ### 1.2 Props (`ERDDesignerProps`)
@@ -154,7 +155,9 @@ createDesignerStore(options?: {
 2. Pass the same adapter to:
    - `ERDDesigner` via `dbMetaAdapter`
    - core helpers (`generateDdl`, `createColumn`, `convertDesignDialect`, etc.) via `{ dbMetaAdapter }`
-3. Keep adapter instance stable (e.g. `useMemo`) to avoid unnecessary store recreation.
+3. Keep adapter instance stable (e.g. `useMemo`) to avoid unnecessary store recreation. `ERDDesigner` keeps one internal store per mount; `value` that echoes the last `onChange` payload is not re-applied with `setDoc` (avoids wiping tables after add/edit).
+4. `onChange` must receive the full `DesignDocument` (entire `model.tables` array). Partial updates or stale `value` props can still replace the canvas document.
+5. Assign a **unique** `table.id` (and `column.id`) per entity when importing from your DB (`createId("table")` from `@rdbms-erd/core` or `@rdbms-erd/designer`). Reusing `table-1` for multiple tables makes only one node appear on the canvas. `ERDDesigner` normalizes duplicates on load via `ensureUniqueDesignIds`.
 
 ---
 

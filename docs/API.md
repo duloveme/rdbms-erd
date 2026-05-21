@@ -18,7 +18,9 @@ For implementation details, read each package source.
 | `createColumn(dialect, params, options?)` | Create a column model with adapter-backed defaults |
 | `defaultPhysicalType`, `applyLogicalTypeChange` | Logical-to-physical type mapping helpers |
 | `convertDesignDialect(doc, nextDialect, options?)` | Converts dialect and updates column physical types |
-| `serializeDesign` / `parseDesign` / `validateDesignDocument` / `roundTripDesign` | Serialization and validation |
+| `serializeDesign` / `parseDesign` / `validateDesignDocument` / `roundTripDesign` | Serialization and validation (`parseDesign` deduplicates ids) |
+| `createId(prefix)` | Stable prefixed ids (`table-{uuid}`, `col-{uuid}`) for host import |
+| `ensureUniqueDesignIds(doc)` | Reissue duplicate table/column ids and fix layout/relationship references |
 | `generateDdl(doc, options?)`, `generateIndexDdl(doc, options?)` | SQL generation (adapter-overridable) |
 | `analyzeDdlDocument`, `formatDdlDiagnostic`, `formatDdlDiagnostics` | DDL/index diagnostics |
 | `generateDdlWithDiagnostics`, `generateIndexDdlWithDiagnostics` | SQL + diagnostics |

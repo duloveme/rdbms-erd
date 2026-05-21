@@ -137,10 +137,14 @@ export interface DesignerState {
 export function createDesignerStore(
     options: {
         initialDialect?: RdbmsDialect;
+        /** @deprecated Prefer `getCoreOptions` so the store instance stays stable when host props change. */
         coreOptions?: CoreDbMetaOptions;
+        getCoreOptions?: () => CoreDbMetaOptions | undefined;
     } = {},
 ) {
     const initialDialect = options.initialDialect ?? "mssql";
+    const resolveCoreOptions = (): CoreDbMetaOptions | undefined =>
+        options.getCoreOptions?.() ?? options.coreOptions;
     return create<DesignerState>()(
         temporal(
             immer((set) => ({
@@ -257,7 +261,7 @@ export function createDesignerStore(
                         column.physicalType = defaultPhysicalType(
                             state.doc.model.dialect,
                             logicalType,
-                            options.coreOptions,
+                            resolveCoreOptions(),
                         );
                     }),
                 setColumnPhysicalType: (tableId, columnId, physicalType) =>

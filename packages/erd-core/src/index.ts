@@ -7,6 +7,8 @@ export type BuiltinRdbmsDialect =
 export type RdbmsDialect = BuiltinRdbmsDialect | (string & {});
 
 export { alignNodePositions, type AlignCommand } from "./alignment";
+import { createId, ensureUniqueDesignIds } from "./ensureUniqueDesignIds";
+export { createId, ensureUniqueDesignIds };
 
 export const LOGICAL_DATA_TYPES = [
     "TEXT",
@@ -240,7 +242,12 @@ export interface CoreDbMetaOptions {
     hostMetas?: DialectMetaJson[];
     hostDdlGenerators?: Record<string, DdlGeneratorHook>;
     fallbackOnHookError?: boolean;
+    /** Host overrides: logical type → default physical DataType (designer / defaultPhysicalType). */
+    defaultPhysicalTypes?: Partial<Record<LogicalDataType, string>>;
 }
+
+/** When TEXT is not in `defaultPhysicalTypes`, `defaultPhysicalType` uses this (not dialect NVARCHAR). */
+export const PACKAGE_DEFAULT_PHYSICAL_TYPE_TEXT = "VARCHAR(20)";
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
@@ -559,15 +566,48 @@ function resolveDbMetaAdapter(options?: CoreDbMetaOptions): DbMetaAdapter {
     return defaultDbMetaAdapter;
 }
 
+function hostMetaTextDefaultPhysical(
+    dialect: RdbmsDialect,
+    options?: CoreDbMetaOptions,
+): string | undefined {
+    const hostOnly = options?.hostMetas?.find((m) => m.id === dialect);
+    const fromHost = hostOnly?.logicalTypes.find((lt) => lt.id === "TEXT")
+        ?.defaultPhysicalType;
+    const trimmed = fromHost?.trim();
+    return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function defaultPhysicalType(
     dialect: RdbmsDialect,
     logicalType: LogicalDataType,
     options?: CoreDbMetaOptions,
 ): string {
-    return resolveDbMetaAdapter(options).getDefaultPhysicalType(
+    const hostOverride = options?.defaultPhysicalTypes?.[logicalType]?.trim();
+    if (hostOverride) return hostOverride;
+
+    const fromAdapter = resolveDbMetaAdapter(options).getDefaultPhysicalType(
         dialect,
         logicalType,
     );
+
+    if (logicalType === "TEXT") {
+        const hostMetaText = hostMetaTextDefaultPhysical(dialect, options);
+        if (hostMetaText) return hostMetaText;
+        const builtinText = resolveDialectMetas()
+            .find((m) => m.id === dialect)
+            ?.logicalTypes.find((lt) => lt.id === "TEXT")
+            ?.defaultPhysicalType?.trim();
+        if (
+            builtinText &&
+            normalizePhysicalCompare(fromAdapter) ===
+                normalizePhysicalCompare(builtinText)
+        ) {
+            return PACKAGE_DEFAULT_PHYSICAL_TYPE_TEXT;
+        }
+        return fromAdapter;
+    }
+
+    return fromAdapter;
 }
 
 function normalizePhysicalCompare(s: string): string {
@@ -947,7 +987,7 @@ export function validateDesignDocument(
     const doc = input as unknown as DesignDocument;
     migrateLegacyFkLineVisibility(doc.model);
     normalizeColumnDefaultValues(doc.model);
-    return doc;
+    return ensureUniqueDesignIds(doc);
 }
 
 export function roundTripDesign(doc: DesignDocument): DesignDocument {

@@ -31,6 +31,7 @@ import {
     convertDesignDialect,
     createColumn,
     createEmptyDesign,
+    ensureUniqueDesignIds,
     defaultDbMetaAdapter,
     type DdlGeneratorHook,
     type DialectMetaJson,
@@ -114,6 +115,11 @@ import {
     targetFkColumnHandleId,
     type RelationshipEdgeData,
 } from "./relationshipEdges";
+import {
+    estimateTableNodeHeightPx,
+    flowPositionAtViewportCenter,
+    resolveFlowPaneElement,
+} from "./placement";
 import { TableEditDialog } from "./TableEditDialog";
 
 export type CanvasDisplayMode = "logical" | "physical";
@@ -1048,6 +1054,11 @@ export interface ERDDesignerProps {
         tablesJson: string,
         meta?: { projectName?: unknown },
     ) => void | Promise<void>;
+    /**
+     * 논리 타입 → 기본 물리 DataType. 지정한 키만 덮어쓴다.
+     * TEXT 미지정 시 `VARCHAR(20)` (`PACKAGE_DEFAULT_PHYSICAL_TYPE_TEXT`).
+     */
+    defaultPhysicalTypes?: Partial<Record<LogicalDataType, string>>;
 }
 
 export type ERDDesignerShellProps = Omit<
@@ -1105,6 +1116,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             hostDdlGenerators,
             fallbackOnHookError = true,
             onExportExcel,
+            defaultPhysicalTypes,
         },
         ref,
     ) {
@@ -1115,12 +1127,25 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 hostMetas,
                 hostDdlGenerators,
                 fallbackOnHookError,
+                defaultPhysicalTypes,
             }),
-            [dbMetaAdapter, fallbackOnHookError, hostDdlGenerators, hostMetas],
+            [
+                dbMetaAdapter,
+                defaultPhysicalTypes,
+                fallbackOnHookError,
+                hostDdlGenerators,
+                hostMetas,
+            ],
         );
+        const coreOptionsRef = useRef(coreOptions);
+        coreOptionsRef.current = coreOptions;
         const useDesignerStore = useMemo(
-            () => createDesignerStore({ initialDialect: "mssql", coreOptions }),
-            [coreOptions],
+            () =>
+                createDesignerStore({
+                    initialDialect: "mssql",
+                    getCoreOptions: () => coreOptionsRef.current,
+                }),
+            [],
         );
         const doc = useDesignerStore((s) => s.doc);
         const setDoc = useDesignerStore((s) => s.setDoc);
@@ -1251,6 +1276,11 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             tableIds: string[];
             relationshipIds: string[];
         } | null>(null);
+        const [simpleTableDeleteConfirm, setSimpleTableDeleteConfirm] =
+            useState<{
+                tableIds: string[];
+                relationshipIds: string[];
+            } | null>(null);
         const [newErDraft, setNewErDraft] = useState<{
             projectName: string;
             projectDescription: string;
@@ -1293,20 +1323,21 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             const echoedFromLocalChange =
                 incomingSignature === lastOnChangeSignatureRef.current;
             setHasDesign(true);
-            if (!echoedFromLocalChange) {
-                setSavedSignature(incomingSignature);
+            if (echoedFromLocalChange) {
+                queueMicrotask(() => {
+                    docSyncFromValueRef.current = false;
+                });
+                return;
             }
+            setSavedSignature(incomingSignature);
             docSyncFromValueRef.current = true;
             const temporal = useDesignerStore.temporal.getState();
             temporal.pause();
-            setDoc(value);
+            setDoc(ensureUniqueDesignIds(value));
             temporal.resume();
-            if (!echoedFromLocalChange) {
-                pendingFitFromValueRef.current = true;
-            }
+            pendingFitFromValueRef.current = true;
             queueMicrotask(() => {
                 docSyncFromValueRef.current = false;
-                if (echoedFromLocalChange) return;
                 requestAnimationFrame(() => {
                     void rfInstanceRef.current?.fitView({
                         duration: 0,
@@ -1845,7 +1876,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             const name = t("designer.defaultTableLogicalName", { n });
             setCreateTableContext({ mode: "toolbar" });
             setCreatingTableDraft({
-                id: `table-${n}`,
+                id: createId("table"),
                 logicalName: name,
                 physicalName: "",
                 columns: [],
@@ -2355,15 +2386,25 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 if (tableIds.length === 0 && relationshipIds.length === 0) {
                     return;
                 }
-                const hasRelationshipsFromTables =
-                    tableIds.length > 0 &&
-                    doc.model.relationships.some(
-                        (rel) =>
-                            tableIds.includes(rel.sourceTableId) ||
-                            tableIds.includes(rel.targetTableId),
-                    );
-                if (relationshipIds.length > 0 || hasRelationshipsFromTables) {
+                const hasRelationshipsInvolved =
+                    relationshipIds.length > 0 ||
+                    (tableIds.length > 0 &&
+                        doc.model.relationships.some(
+                            (rel) =>
+                                tableIds.includes(rel.sourceTableId) ||
+                                tableIds.includes(rel.targetTableId),
+                        ));
+                if (hasRelationshipsInvolved) {
+                    setSimpleTableDeleteConfirm(null);
                     setDeleteConfirmDialog({ tableIds, relationshipIds });
+                    return;
+                }
+                if (tableIds.length > 0) {
+                    setDeleteConfirmDialog(null);
+                    setSimpleTableDeleteConfirm({
+                        tableIds,
+                        relationshipIds,
+                    });
                     return;
                 }
                 executeDeleteSelection(tableIds, relationshipIds, true);
@@ -2418,6 +2459,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         useEffect(() => {
             if (!layoutLocked) return;
             setDeleteConfirmDialog(null);
+            setSimpleTableDeleteConfirm(null);
             setEdgeContextMenu(null);
             setRelationshipCreateMode(false);
             setRelationshipCreateSelection([]);
@@ -2814,6 +2856,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     newErDialogOpen ||
                     fkCollisionDialog ||
                     deleteConfirmDialog ||
+                    simpleTableDeleteConfirm ||
                     editingTableId !== null ||
                     creatingTableDraft
                 ) {
@@ -2952,6 +2995,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             copySelectedTables,
             creatingTableDraft,
             deleteConfirmDialog,
+            simpleTableDeleteConfirm,
             doc,
             editingTableId,
             fkCollisionDialog,
@@ -4107,11 +4151,21 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 });
                             }
                         } else {
-                            addTableAt(
-                                table,
-                                120 + Math.random() * 80,
-                                120 + Math.random() * 80,
+                            const inst = rfInstanceRef.current;
+                            const canvas = canvasRootRef.current;
+                            const nodeHeight = estimateTableNodeHeightPx(
+                                table.columns.length,
                             );
+                            const pos =
+                                inst && canvas
+                                    ? flowPositionAtViewportCenter(
+                                          inst,
+                                          resolveFlowPaneElement(canvas),
+                                          tableWidth,
+                                          nodeHeight,
+                                      )
+                                    : { x: 120, y: 120 };
+                            addTableAt(table, pos.x, pos.y);
                         }
                         setCreatingTableDraft(null);
                         setCreateTableContext(null);
@@ -4176,6 +4230,65 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                     type="button"
                                     className="erd-btn erd-btn--ghost"
                                     onClick={() => setDeleteConfirmDialog(null)}
+                                >
+                                    {t("dialog.cancel")}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+                {simpleTableDeleteConfirm ? (
+                    <div className="erd-dialog-backdrop" role="presentation">
+                        <div
+                            className="erd-dialog"
+                            role="alertdialog"
+                            aria-modal="true"
+                            aria-labelledby="erd-delete-table-title"
+                            style={{ width: "min(520px, 100%)", height: "auto" }}
+                        >
+                            <div className="erd-dialog-header">
+                                <span id="erd-delete-table-title">
+                                    {t("dialog.tableDelete.title")}
+                                </span>
+                            </div>
+                            <div className="erd-dialog-body">
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontSize: 14,
+                                        lineHeight: 1.45,
+                                    }}
+                                >
+                                    {simpleTableDeleteConfirm.tableIds
+                                        .length === 1
+                                        ? t("dialog.tableDelete.messageOne")
+                                        : t("dialog.tableDelete.message", {
+                                              count: simpleTableDeleteConfirm
+                                                  .tableIds.length,
+                                          })}
+                                </p>
+                            </div>
+                            <div className="erd-dialog-footer">
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--primary"
+                                    onClick={() => {
+                                        executeDeleteSelection(
+                                            simpleTableDeleteConfirm.tableIds,
+                                            simpleTableDeleteConfirm.relationshipIds,
+                                            true,
+                                        );
+                                        setSimpleTableDeleteConfirm(null);
+                                    }}
+                                >
+                                    {t("dialog.tableDelete.confirm")}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--ghost"
+                                    onClick={() =>
+                                        setSimpleTableDeleteConfirm(null)
+                                    }
                                 >
                                     {t("dialog.cancel")}
                                 </button>

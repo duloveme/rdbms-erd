@@ -75,10 +75,21 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.confirm": "릴레이션 생성",
   "dialog.confirm.unsaved.title": "저장되지 않은 변경사항이 있습니다.",
   "dialog.confirm.unsaved.newEr": "현재 ER가 수정 중입니다. 계속해서 새 ER를 생성할까요?",
+  "dialog.confirm.tableEdit.closeTitle": "테이블 편집 닫기",
+  "dialog.confirm.tableEdit.close":
+    "저장하지 않은 변경사항이 있습니다. 저장하지 않고 닫을까요?",
+  "dialog.confirm.tableEdit.discard": "저장하지 않고 닫기",
+  "dialog.confirm.columnDelete.title": "컬럼 삭제",
+  "dialog.confirm.columnDelete": "이 컬럼을 삭제할까요?",
+  "dialog.confirm.columnDelete.confirm": "삭제",
   "dialog.confirm.dialectChange": "DB 종류를 변경하면 컬럼 타입이 바뀔 수 있습니다. 호환 타입으로 변환하고 계속할까요?",
   "dialog.relationshipDelete.title": "릴레이션 삭제",
   "dialog.relationshipDelete.message":
     "삭제할까요?\n예: 릴레이션 + FK 컬럼 삭제\n아니오: 릴레이션만 삭제\n취소: 아무 작업도 하지 않음",
+  "dialog.tableDelete.title": "테이블 삭제",
+  "dialog.tableDelete.messageOne": "이 테이블을 삭제할까요?",
+  "dialog.tableDelete.message": "선택한 {{count}}개 테이블을 삭제할까요?",
+  "dialog.tableDelete.confirm": "삭제",
   "dialog.yes": "예",
   "dialog.no": "아니오",
   "node.editTable": "테이블 편집",
@@ -89,6 +100,8 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.tableEdit.titleWithName": "테이블 편집 — {{name}}",
   "dialog.tableEdit.errorDuplicateLogical":
     "다른 테이블과 논리명이 같습니다.",
+  "dialog.tableEdit.modeLogicalWithShortcut": "논리 (Ctrl+Shift+↑)",
+  "dialog.tableEdit.modePhysicalWithShortcut": "물리 (Ctrl+Shift+↓)",
   "dialog.tableEdit.errorDuplicatePhysical":
     "다른 테이블과 물리명이 같습니다(스키마 포함).",
   "dialog.tableName": "테이블명",

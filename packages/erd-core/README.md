@@ -35,6 +35,30 @@ doc.model.tables.push({
 console.log(generateDdl(doc));
 ```
 
+## Table and column IDs (required)
+
+Every `TableModel.id` and `ColumnModel.id` must be **unique across the whole document**.
+React Flow nodes use `table.id` as the node id; duplicate ids (for example two `table-1` rows from a DB import) collapse to one canvas node and break layout keys in `layout.nodePositions`.
+
+When building a design from a database in your host app, do **not** reuse `table-1` per table. Use a fresh id per entity:
+
+```ts
+import { createId } from "@rdbms-erd/core";
+
+const table = {
+  id: createId("table"), // e.g. table-550e8400-e29b-41d4-a716-446655440000
+  physicalName: row.tableName,
+  logicalName: row.comment ?? "",
+  columns: row.columns.map((c) => ({
+    id: createId("col"),
+    physicalName: c.name,
+    // ...
+  })),
+};
+```
+
+`parseDesign` and `ensureUniqueDesignIds(doc)` reissue duplicate ids when loading legacy or host-generated JSON.
+
 ## Core Concepts
 
 - `DesignDocument`: ER JSON source of truth

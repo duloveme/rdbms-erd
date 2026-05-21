@@ -7,6 +7,7 @@ import {
     createEmptyDesign,
     defaultPhysicalType,
     inferLogicalTypeFromPhysical,
+    PACKAGE_DEFAULT_PHYSICAL_TYPE_TEXT,
 } from "../index";
 
 describe("logical / physical types", () => {
@@ -98,6 +99,24 @@ describe("logical / physical types", () => {
     expect(defaultPhysicalType("oracle", "UUID")).toBe("RAW(16)");
     expect(defaultPhysicalType("sqlite", "BINARY")).toBe("BLOB");
     expect(defaultPhysicalType("mssql", "DECIMAL")).toBe("DECIMAL(10,2)");
+  });
+
+  it("defaultPhysicalType uses VARCHAR(20) for TEXT when host override absent", () => {
+    expect(PACKAGE_DEFAULT_PHYSICAL_TYPE_TEXT).toBe("VARCHAR(20)");
+    expect(defaultPhysicalType("mssql", "TEXT")).toBe("VARCHAR(20)");
+    expect(defaultPhysicalType("postgres", "TEXT")).toBe("VARCHAR(20)");
+  });
+
+  it("defaultPhysicalTypes prop overrides per logical type", () => {
+    const options = {
+      defaultPhysicalTypes: {
+        TEXT: "NVARCHAR(100)",
+        NUMBER: "BIGINT",
+      } as const,
+    };
+    expect(defaultPhysicalType("mssql", "TEXT", options)).toBe("NVARCHAR(100)");
+    expect(defaultPhysicalType("mssql", "NUMBER", options)).toBe("BIGINT");
+    expect(defaultPhysicalType("mssql", "DATE", options)).toBe("DATE");
   });
 
   it("inferLogicalTypeFromPhysical maps defaults and common aliases", () => {
