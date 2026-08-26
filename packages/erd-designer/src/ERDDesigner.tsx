@@ -1494,6 +1494,19 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         useEffect(() => {
             selectionSigRef.current = "";
+            // 엣지를 노드보다 먼저(또는 같은 틱에) 맞춰, FK 핸들 제거 직후
+            // 한 프레임 동안 옛 엣지가 없는 핸들을 가리켜 React Flow #008이 나지 않게 한다.
+            setEdges((prev) => {
+                const prevById = new Map(prev.map((e) => [e.id, e]));
+                return flowEdgesRef.current.map((next) => {
+                    const old = prevById.get(next.id);
+                    return {
+                        ...old,
+                        ...next,
+                        selected: old?.selected ?? false,
+                    };
+                });
+            });
             setNodes((prev) => {
                 const prevById = new Map(prev.map((n) => [n.id, n]));
                 return flowNodesRef.current.map((next) => {
@@ -1503,21 +1516,6 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         ...next,
                         selected: old?.selected ?? false,
                     };
-                });
-            });
-            // 문서 교체(Load test ER) 직후에는 노드 핸들이 먼저 mount된 다음
-            // 엣지를 반영하도록 한 프레임 지연해 React Flow handle-miss 경고를 줄인다.
-            requestAnimationFrame(() => {
-                setEdges((prev) => {
-                    const prevById = new Map(prev.map((e) => [e.id, e]));
-                    return flowEdgesRef.current.map((next) => {
-                        const old = prevById.get(next.id);
-                        return {
-                            ...old,
-                            ...next,
-                            selected: old?.selected ?? false,
-                        };
-                    });
                 });
             });
             if (pendingFitFromValueRef.current) {
