@@ -42,6 +42,7 @@ export const koBundle: Record<I18nKey, string> = {
     "{{toggle}}: {{state}} ({{shortcuts}})",
   "toolbar.panel.hide": "패널 숨기기",
   "toolbar.panel.show": "패널 보기",
+  "toolbar.glossary": "Glossary",
   "canvas.emptyHint": "새 ER 버튼으로 시작하세요.",
   "context.edge.hideLine": "숨기기",
   "context.edge.showLine": "보이기",
@@ -126,6 +127,20 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.cancel": "취소",
   "dialog.save": "저장",
   "dialog.close": "닫기",
+  "dialog.tableEdit.createDefaultColumns": "기본컬럼 생성",
+  "dialog.tableEdit.addToGlossary": "Glossary에 추가/갱신",
+  "dialog.tableEdit.glossaryNeedsBothNames":
+    "논리명과 물리명을 모두 입력해야 Glossary에 추가할 수 있습니다.",
+  "dialog.tableEdit.glossaryAdded": "Glossary에 추가했습니다.",
+  "dialog.tableEdit.glossaryUpdated": "Glossary를 업데이트했습니다.",
+  "dialog.glossary.title": "Glossary 관리",
+  "dialog.glossary.logicalName": "논리명",
+  "dialog.glossary.physicalName": "물리명",
+  "dialog.glossary.add": "행 추가",
+  "dialog.glossary.deleteSelected": "선택 삭제",
+  "dialog.glossary.applySelected": "일괄적용",
+  "dialog.glossary.selectAll": "전체 선택",
+  "dialog.glossary.empty": "등록된 항목이 없습니다.",
   "designer.defaultTableLogicalName": "테이블{{n}}",
   "designer.defaultColumnName": "컬럼1"
 };

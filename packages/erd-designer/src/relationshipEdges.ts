@@ -9,9 +9,16 @@ export type RelationshipEdgeData = {
     sourceLineY: number;
     sourceAnchorMinY: number;
     sourceAnchorMaxY: number;
+    /** RF target handle의 테이블 로컬 Y(FK 행 중앙). tableTop = targetY - 이 값. */
+    targetHandleLocalY: number;
+    targetLineRatio: number;
+    targetLineY: number;
+    targetAnchorMinY: number;
+    targetAnchorMaxY: number;
     linePivotRatio?: number;
     onLinePivotRatioChange?: (relationshipId: string, ratio: number) => void;
     onSourceLineRatioChange?: (relationshipId: string, ratio: number) => void;
+    onTargetLineRatioChange?: (relationshipId: string, ratio: number) => void;
 };
 
 export type RelationshipHandleSide = "left" | "right";
@@ -126,20 +133,39 @@ function groupMembersOrdered(
 
 /**
  * Target handle for an edge on the target table (FK column only).
- * 복합 FK 그룹은 `primary` 관계의 `targetColumnId`(첫 FK 컬럼)에 맞춘다.
+ * 복합 FK 그룹은 부모 마지막 PK에 대응하는 FK 컬럼 Handle에 맞춘다.
  */
 export function resolveTargetFkHandleId(
     rel: RelationshipModel,
     model: DesignModel,
     side: RelationshipHandleSide,
+    options?: { targetColumnIdOverride?: string },
 ): string | null {
     const targetTable = model.tables.find((t) => t.id === rel.targetTableId);
     if (!targetTable) return null;
 
-    const i = fkColumnIndex(targetTable, rel.targetColumnId);
+    const columnId = options?.targetColumnIdOverride ?? rel.targetColumnId;
+    const i = fkColumnIndex(targetTable, columnId);
     if (i < 0) return null;
     const col = targetTable.columns[i];
     return col ? targetFkColumnHandleId(col.id, side) : null;
+}
+
+/** 복합 그룹에서 부모 마지막 PK에 매핑된 멤버의 targetColumnId (없으면 null). */
+function lastPkMappedTargetColumnId(
+    model: DesignModel,
+    primary: RelationshipModel,
+    members: RelationshipModel[],
+): string | undefined {
+    const sourceTable = model.tables.find((t) => t.id === primary.sourceTableId);
+    if (!sourceTable) return undefined;
+    let lastPkId: string | undefined;
+    for (const col of sourceTable.columns) {
+        if (col.isPrimaryKey) lastPkId = col.id;
+    }
+    if (!lastPkId) return undefined;
+    const mapped = members.find((m) => m.sourceColumnId === lastPkId);
+    return mapped?.targetColumnId;
 }
 
 function resolveRelationshipSides(params: {
@@ -188,6 +214,12 @@ function pushEdgeForPrimary(
             relationshipId: string,
             ratio: number,
         ) => void;
+        onTargetLineRatioChange?: (
+            relationshipId: string,
+            ratio: number,
+        ) => void;
+        /** 복합 그룹: Child 끝점용 FK 컬럼 id (마지막 PK 대응). */
+        targetColumnIdOverride?: string;
     },
 ): void {
     if (!isRelationshipLineRenderable(primary, revealHiddenLines)) {
@@ -200,13 +232,22 @@ function pushEdgeForPrimary(
         targetPos,
         tableWidth,
     });
-    const targetHandle = resolveTargetFkHandleId(primary, model, targetSide);
+    const targetColumnId =
+        options?.targetColumnIdOverride ?? primary.targetColumnId;
+    const targetHandle = resolveTargetFkHandleId(primary, model, targetSide, {
+        targetColumnIdOverride: options?.targetColumnIdOverride,
+    });
     if (!targetHandle) return;
     const sourceTable = model.tables.find((t) => t.id === primary.sourceTableId);
+    const targetTable = model.tables.find((t) => t.id === primary.targetTableId);
     const sourceColumnCount = sourceTable?.columns.length ?? 0;
+    const targetColumnCount = targetTable?.columns.length ?? 0;
     const sourceAnchorMinY = tableTopPx();
     const sourceAnchorMaxY = tableBottomPx(sourceColumnCount);
+    const targetAnchorMinY = tableTopPx();
+    const targetAnchorMaxY = tableBottomPx(targetColumnCount);
     const sourceSpan = Math.max(1, sourceAnchorMaxY - sourceAnchorMinY);
+    const targetSpan = Math.max(1, targetAnchorMaxY - targetAnchorMinY);
     const computedSourceLineY =
         primary.sourceLineY ??
         (typeof primary.sourceLineRatio === "number"
@@ -216,6 +257,19 @@ function pushEdgeForPrimary(
                   sourceTable,
                   primary.sourceColumnId,
               ));
+    const fkRowIndex = targetTable
+        ? fkColumnIndex(targetTable, targetColumnId)
+        : -1;
+    const targetHandleLocalY = relationshipRowCenterTopPx(
+        fkRowIndex >= 0 ? fkRowIndex : 0,
+        Math.max(1, targetColumnCount),
+    );
+    const computedTargetLineY =
+        primary.targetLineY ??
+        (typeof primary.targetLineRatio === "number"
+            ? targetAnchorMinY +
+              (targetAnchorMaxY - targetAnchorMinY) * primary.targetLineRatio
+            : targetHandleLocalY);
     const edge: Edge<RelationshipEdgeData> = {
         id: primary.id,
         source: primary.sourceTableId,
@@ -240,9 +294,18 @@ function pushEdgeForPrimary(
             sourceLineY: computedSourceLineY,
             sourceAnchorMinY,
             sourceAnchorMaxY,
+            targetHandleLocalY,
+            targetLineRatio:
+                typeof primary.targetLineRatio === "number"
+                    ? primary.targetLineRatio
+                    : (computedTargetLineY - targetAnchorMinY) / targetSpan,
+            targetLineY: computedTargetLineY,
+            targetAnchorMinY,
+            targetAnchorMaxY,
             linePivotRatio: primary.linePivotRatio,
             onLinePivotRatioChange: options?.onLinePivotRatioChange,
             onSourceLineRatioChange: options?.onSourceLineRatioChange,
+            onTargetLineRatioChange: options?.onTargetLineRatioChange,
         },
     };
     edges.push(edge);
@@ -262,6 +325,10 @@ export function buildRelationshipFlowEdges(
             relationshipId: string,
             ratio: number,
         ) => void;
+        onTargetLineRatioChange?: (
+            relationshipId: string,
+            ratio: number,
+        ) => void;
     },
 ): Edge<RelationshipEdgeData>[] {
     const edges: Edge<RelationshipEdgeData>[] = [];
@@ -276,6 +343,11 @@ export function buildRelationshipFlowEdges(
                 emittedGroup.add(gid);
                 const primary = members[0];
                 if (!primary) continue;
+                const lastPkTargetColumnId = lastPkMappedTargetColumnId(
+                    model,
+                    primary,
+                    members,
+                );
                 pushEdgeForPrimary(
                     model,
                     primary,
@@ -284,7 +356,10 @@ export function buildRelationshipFlowEdges(
                     tableWidth,
                     revealHiddenLines,
                     edges,
-                    options,
+                    {
+                        ...options,
+                        targetColumnIdOverride: lastPkTargetColumnId,
+                    },
                 );
                 continue;
             }

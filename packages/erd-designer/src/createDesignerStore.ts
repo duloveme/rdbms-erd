@@ -5,6 +5,7 @@ import {
     defaultPhysicalType,
     ColumnModel,
     DesignDocument,
+    type GlossaryEntry,
     LogicalDataType,
     RdbmsDialect,
     RelationshipModel,
@@ -13,6 +14,12 @@ import {
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { temporal } from "zundo";
+import {
+    applyGlossaryEntriesToModel,
+    type GlossaryMatchKey,
+    removeGlossaryEntries as removeGlossaryEntriesPure,
+    upsertGlossaryEntry as upsertGlossaryEntryPure,
+} from "./glossary";
 
 export type AlignType =
     | "left"
@@ -126,6 +133,28 @@ export interface DesignerState {
     ) => void;
     /** 관계선 출발점 절대 Y(px) 변경 */
     setRelationshipSourceLineY: (relationshipId: string, y: number) => void;
+    /** 관계선 도착점 세로 비율(0~1) 변경 */
+    setRelationshipTargetLineRatio: (
+        relationshipId: string,
+        ratio: number,
+    ) => void;
+    /** 관계선 도착점 절대 Y(px) 변경 */
+    setRelationshipTargetLineY: (relationshipId: string, y: number) => void;
+    setGlossary: (entries: GlossaryEntry[]) => void;
+    upsertGlossaryEntry: (
+        entry: {
+            logicalName: string;
+            physicalName: string;
+            id?: string;
+        },
+        matchKey: GlossaryMatchKey,
+    ) => void;
+    removeGlossaryEntries: (ids: string[]) => void;
+    /** 선택 glossary 항목을 매칭 키 기준 반대명에 적용(덮어쓰기) */
+    applyGlossaryToTables: (
+        entryIds: string[],
+        matchKey: GlossaryMatchKey,
+    ) => void;
     /** 선택된 테이블/관계선을 한 번에 삭제(Undo 1스텝 보장) */
     deleteSelection: (
         tableIds: string[],
@@ -508,6 +537,76 @@ export function createDesignerStore(
                         for (const r of targets) {
                             r.sourceLineY = normalized;
                         }
+                    }),
+                setRelationshipTargetLineRatio: (relationshipId, ratio) =>
+                    set((state) => {
+                        const rel = state.doc.model.relationships.find(
+                            (r) => r.id === relationshipId,
+                        );
+                        if (!rel) return;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
+                        const normalized = Number.isFinite(ratio)
+                            ? Math.max(0, Math.min(1, ratio))
+                            : 0;
+                        for (const r of targets) {
+                            r.targetLineRatio = normalized;
+                            delete r.targetLineY;
+                        }
+                    }),
+                setRelationshipTargetLineY: (relationshipId, y) =>
+                    set((state) => {
+                        const rel = state.doc.model.relationships.find(
+                            (r) => r.id === relationshipId,
+                        );
+                        if (!rel) return;
+                        const targets = relationshipGroupMembers(
+                            state.doc.model.relationships,
+                            rel,
+                        );
+                        const normalized = Number.isFinite(y)
+                            ? Math.max(0, y)
+                            : 0;
+                        for (const r of targets) {
+                            r.targetLineY = normalized;
+                        }
+                    }),
+                setGlossary: (entries) =>
+                    set((state) => {
+                        state.doc.glossary = entries.map((e) => ({
+                            id: e.id,
+                            logicalName: e.logicalName,
+                            physicalName: e.physicalName,
+                        }));
+                    }),
+                upsertGlossaryEntry: (entry, matchKey) =>
+                    set((state) => {
+                        const current = state.doc.glossary ?? [];
+                        state.doc.glossary = upsertGlossaryEntryPure(
+                            current,
+                            entry,
+                            matchKey,
+                        );
+                    }),
+                removeGlossaryEntries: (ids) =>
+                    set((state) => {
+                        const current = state.doc.glossary ?? [];
+                        state.doc.glossary = removeGlossaryEntriesPure(
+                            current,
+                            ids,
+                        );
+                    }),
+                applyGlossaryToTables: (entryIds, matchKey) =>
+                    set((state) => {
+                        const glossary = state.doc.glossary ?? [];
+                        state.doc.model = applyGlossaryEntriesToModel(
+                            state.doc.model,
+                            glossary,
+                            entryIds,
+                            matchKey,
+                        );
                     }),
                 deleteSelection: (tableIds, relationshipIds, options) =>
                     set((state) => {

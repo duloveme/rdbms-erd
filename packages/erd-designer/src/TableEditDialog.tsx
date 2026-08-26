@@ -6,6 +6,7 @@ import {
     dialectSupportsSchema,
     defaultPhysicalType,
     type ColumnModel,
+    type GlossaryEntry,
     LOGICAL_DATA_TYPES,
     LogicalDataType,
     RdbmsDialect,
@@ -19,6 +20,7 @@ import {
     GripVertical,
     KeyRound,
     Link2,
+    Plus,
     Trash2,
     X,
 } from "lucide-react";
@@ -30,6 +32,16 @@ import React, {
     useState,
 } from "react";
 import type { CanvasDisplayMode } from "./ERDDesigner";
+import {
+    appendDefaultColumns,
+    type DefaultColumnSpec,
+    preserveDefaultColumnPhysicalTypes,
+} from "./defaultColumns";
+import {
+    fillOppositeNamesFromGlossary,
+    findGlossaryMatch,
+    type GlossaryMatchKey,
+} from "./glossary";
 import { createId } from "./id";
 import { useErdTranslator } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
@@ -41,6 +53,8 @@ import {
     syncTableEditDraftOnSwitchToLogical,
     syncTableEditDraftOnSwitchToPhysical,
 } from "./tableEditDraftSync";
+
+export type { DefaultColumnSpec };
 
 export interface TableEditDialogProps {
     open: boolean;
@@ -58,6 +72,20 @@ export interface TableEditDialogProps {
     tablesForDuplicateCheck?: TableModel[];
     /** @deprecated Prefer `coreOptions.defaultPhysicalTypes`. Merged into `coreOptions` when set. */
     defaultPhysicalTypes?: Partial<Record<LogicalDataType, string>>;
+    /**
+     * Host templates for「기본컬럼 생성」. Empty/undefined hides the button.
+     * Specs with names already present are skipped (case-insensitive).
+     */
+    defaultColumns?: readonly DefaultColumnSpec[];
+    /** Current design glossary (document-owned). */
+    glossary?: readonly GlossaryEntry[];
+    /** Glossary match / upsert key side. Default `logical`. */
+    glossaryMatchKey?: GlossaryMatchKey;
+    /** Upsert into document glossary. */
+    onUpsertGlossaryEntry?: (entry: {
+        logicalName: string;
+        physicalName: string;
+    }) => void;
 }
 
 type ColumnFocusField = "name" | "type" | "description";
@@ -148,7 +176,10 @@ function ensureTrailingBlankColumn(
 
 type TableEditPendingConfirm =
     | { kind: "close" }
-    | { kind: "deleteColumn"; index: number };
+    | { kind: "deleteColumn"; index: number }
+    | { kind: "glossaryNeedsBothNames" }
+    | { kind: "glossaryAdded" }
+    | { kind: "glossaryUpdated" };
 
 export function TableEditDialog({
     open,
@@ -163,6 +194,10 @@ export function TableEditDialog({
     coreOptions,
     tablesForDuplicateCheck,
     defaultPhysicalTypes: defaultPhysicalTypesProp,
+    defaultColumns,
+    glossary = [],
+    glossaryMatchKey = "logical",
+    onUpsertGlossaryEntry,
 }: TableEditDialogProps) {
     const { t } = useErdTranslator({ locale, translations, t: tProp });
     const resolvedCoreOptions = useMemo(
@@ -253,30 +288,46 @@ export function TableEditDialog({
     }, [open]);
 
     const switchDialogToLogicalMode = useCallback(() => {
-        setDraft((d) =>
-            d
-                ? syncTableEditDraftOnSwitchToLogical(
-                      d,
-                      dialect,
-                      resolvedCoreOptions,
-                  )
-                : d,
-        );
+        setDraft((d) => {
+            if (!d) return d;
+            const synced = syncTableEditDraftOnSwitchToLogical(
+                d,
+                dialect,
+                resolvedCoreOptions,
+            );
+            return {
+                ...synced,
+                columns: fillOppositeNamesFromGlossary(
+                    synced.columns,
+                    glossary,
+                    "toLogical",
+                    glossaryMatchKey,
+                ),
+            };
+        });
         setDialogDisplayMode("logical");
-    }, [dialect, resolvedCoreOptions]);
+    }, [dialect, glossary, glossaryMatchKey, resolvedCoreOptions]);
 
     const switchDialogToPhysicalMode = useCallback(() => {
-        setDraft((d) =>
-            d
-                ? syncTableEditDraftOnSwitchToPhysical(
-                      d,
-                      dialect,
-                      resolvedCoreOptions,
-                  )
-                : d,
-        );
+        setDraft((d) => {
+            if (!d) return d;
+            const synced = syncTableEditDraftOnSwitchToPhysical(
+                d,
+                dialect,
+                resolvedCoreOptions,
+            );
+            return {
+                ...synced,
+                columns: fillOppositeNamesFromGlossary(
+                    synced.columns,
+                    glossary,
+                    "toPhysical",
+                    glossaryMatchKey,
+                ),
+            };
+        });
         setDialogDisplayMode("physical");
-    }, [dialect, resolvedCoreOptions]);
+    }, [dialect, glossary, glossaryMatchKey, resolvedCoreOptions]);
 
     const requestClose = useCallback(() => {
         if (!userEdited) {
@@ -285,41 +336,6 @@ export function TableEditDialog({
         }
         setPendingConfirm({ kind: "close" });
     }, [onClose, userEdited]);
-
-    useEffect(() => {
-        if (!open) return;
-        const onKeyDown = (e: KeyboardEvent) => {
-            const mod = e.metaKey || e.ctrlKey;
-            if (
-                mod &&
-                e.shiftKey &&
-                (e.key === "ArrowUp" || e.key === "ArrowDown")
-            ) {
-                e.preventDefault();
-                if (e.key === "ArrowUp") {
-                    switchDialogToLogicalMode();
-                } else {
-                    switchDialogToPhysicalMode();
-                }
-                return;
-            }
-            if (e.key !== "Escape") return;
-            e.preventDefault();
-            if (pendingConfirm) {
-                setPendingConfirm(null);
-                return;
-            }
-            requestClose();
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [
-        open,
-        pendingConfirm,
-        requestClose,
-        switchDialogToLogicalMode,
-        switchDialogToPhysicalMode,
-    ]);
 
     useEffect(() => {
         setSaveError(null);
@@ -339,9 +355,19 @@ export function TableEditDialog({
             resolvedCoreOptions,
             dialogDisplayMode,
         );
+        const toSave =
+            dialogDisplayMode === "logical" &&
+            defaultColumns &&
+            defaultColumns.length > 0
+                ? preserveDefaultColumnPhysicalTypes(
+                      draft,
+                      normalized,
+                      defaultColumns,
+                  )
+                : normalized;
         if (tablesForDuplicateCheck && tablesForDuplicateCheck.length > 0) {
             const dupMsg = tableDuplicateSaveErrorMessage(
-                normalized,
+                toSave,
                 tablesForDuplicateCheck,
                 t,
             );
@@ -351,10 +377,11 @@ export function TableEditDialog({
             }
         }
         setSaveError(null);
-        onSave(normalized);
+        onSave(toSave);
         onClose();
     }, [
         coreOptions,
+        defaultColumns,
         dialogDisplayMode,
         draft,
         dialect,
@@ -373,6 +400,73 @@ export function TableEditDialog({
                 : draft.physicalName;
         return t("dialog.tableEdit.titleWithName", { name });
     }, [dialogDisplayMode, draft, t]);
+
+    const removeColumn = useCallback(
+        (index: number) => {
+            setUserEdited(true);
+            setDraft((d) => {
+                if (!d || d.columns.length <= 1) return d;
+                return ensureTrailingBlankColumn(
+                    { ...d, columns: d.columns.filter((_, i) => i !== index) },
+                    dialect,
+                    resolvedCoreOptions,
+                );
+            });
+        },
+        [dialect, resolvedCoreOptions],
+    );
+
+    const confirmDeleteColumn = useCallback(() => {
+        if (pendingConfirm?.kind !== "deleteColumn") return;
+        removeColumn(pendingConfirm.index);
+        setPendingConfirm(null);
+    }, [pendingConfirm, removeColumn]);
+
+    useEffect(() => {
+        if (!open) return;
+        const onKeyDown = (e: KeyboardEvent) => {
+            const mod = e.metaKey || e.ctrlKey;
+            if (
+                mod &&
+                e.shiftKey &&
+                (e.key === "ArrowUp" || e.key === "ArrowDown")
+            ) {
+                e.preventDefault();
+                if (e.key === "ArrowUp") {
+                    switchDialogToLogicalMode();
+                } else {
+                    switchDialogToPhysicalMode();
+                }
+                return;
+            }
+            if (
+                e.key === "Enter" &&
+                pendingConfirm?.kind === "deleteColumn" &&
+                !e.isComposing
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                confirmDeleteColumn();
+                return;
+            }
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            if (pendingConfirm) {
+                setPendingConfirm(null);
+                return;
+            }
+            requestClose();
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [
+        confirmDeleteColumn,
+        open,
+        pendingConfirm,
+        requestClose,
+        switchDialogToLogicalMode,
+        switchDialogToPhysicalMode,
+    ]);
 
     if (!open || !table || !draft) return null;
 
@@ -440,20 +534,51 @@ export function TableEditDialog({
         });
     };
 
-    const removeColumn = (index: number) => {
+    const handleCreateDefaultColumns = () => {
+        if (!defaultColumns || defaultColumns.length === 0) return;
         markUserEdited();
         setDraft((d) => {
-            if (!d || d.columns.length <= 1) return d;
+            if (!d) return d;
             return ensureTrailingBlankColumn(
-                { ...d, columns: d.columns.filter((_, i) => i !== index) },
+                appendDefaultColumns(
+                    d,
+                    defaultColumns,
+                    dialect,
+                    resolvedCoreOptions,
+                ),
                 dialect,
                 resolvedCoreOptions,
             );
         });
     };
 
+    const showDefaultColumnsButton =
+        Boolean(defaultColumns) && (defaultColumns?.length ?? 0) > 0;
+
     const requestRemoveColumn = (index: number) => {
         setPendingConfirm({ kind: "deleteColumn", index });
+    };
+
+    const handleAddColumnToGlossary = (index: number) => {
+        if (!onUpsertGlossaryEntry || !draft) return;
+        const col = draft.columns[index];
+        if (!col || columnNamesBlank(col)) return;
+        const logicalName = col.logicalName?.trim() ?? "";
+        const physicalName = col.physicalName?.trim() ?? "";
+        if (!logicalName || !physicalName) {
+            setPendingConfirm({ kind: "glossaryNeedsBothNames" });
+            return;
+        }
+        const matched = findGlossaryMatch(
+            glossary,
+            logicalName,
+            physicalName,
+            glossaryMatchKey,
+        );
+        onUpsertGlossaryEntry({ logicalName, physicalName });
+        setPendingConfirm({
+            kind: matched ? "glossaryUpdated" : "glossaryAdded",
+        });
     };
 
     const nameCaption = t("dialog.tableName");
@@ -571,10 +696,8 @@ export function TableEditDialog({
                         <button
                             type="button"
                             className="erd-btn erd-btn--primary"
-                            onClick={() => {
-                                removeColumn(pendingConfirm.index);
-                                setPendingConfirm(null);
-                            }}
+                            autoFocus
+                            onClick={confirmDeleteColumn}
                         >
                             {t("dialog.confirm.columnDelete.confirm")}
                         </button>
@@ -584,6 +707,52 @@ export function TableEditDialog({
                             onClick={() => setPendingConfirm(null)}
                         >
                             {t("dialog.cancel")}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        ) : pendingConfirm?.kind === "glossaryNeedsBothNames" ||
+          pendingConfirm?.kind === "glossaryAdded" ||
+          pendingConfirm?.kind === "glossaryUpdated" ? (
+            <div
+                className="erd-dialog-backdrop erd-dialog-backdrop--nested"
+                role="presentation"
+            >
+                <div
+                    className="erd-dialog"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="erd-table-edit-glossary-msg-title"
+                    style={{ width: "min(520px, 100%)", height: "auto" }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div className="erd-dialog-header">
+                        <span id="erd-table-edit-glossary-msg-title">
+                            {t("dialog.tableEdit.addToGlossary")}
+                        </span>
+                    </div>
+                    <div className="erd-dialog-body">
+                        <p
+                            style={{
+                                margin: 0,
+                                fontSize: 14,
+                                lineHeight: 1.45,
+                            }}
+                        >
+                            {pendingConfirm.kind === "glossaryNeedsBothNames"
+                                ? t("dialog.tableEdit.glossaryNeedsBothNames")
+                                : pendingConfirm.kind === "glossaryAdded"
+                                  ? t("dialog.tableEdit.glossaryAdded")
+                                  : t("dialog.tableEdit.glossaryUpdated")}
+                        </p>
+                    </div>
+                    <div className="erd-dialog-footer">
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--primary"
+                            onClick={() => setPendingConfirm(null)}
+                        >
+                            {t("dialog.close")}
                         </button>
                     </div>
                 </div>
@@ -808,6 +977,10 @@ export function TableEditDialog({
                         >
                             {t("dialog.column.nullShort")}
                         </span>
+                        <span
+                            className="erd-dialog-col-head-spacer"
+                            aria-hidden="true"
+                        />
                         <span
                             className="erd-dialog-col-head-spacer"
                             aria-hidden="true"
@@ -1145,6 +1318,26 @@ export function TableEditDialog({
                                 >
                                     <Eraser size={12} />
                                 </button>
+                                {onUpsertGlossaryEntry ? (
+                                    <button
+                                        type="button"
+                                        className="erd-dialog-icon-btn erd-dialog-icon-btn--row"
+                                        aria-label={t(
+                                            "dialog.tableEdit.addToGlossary",
+                                        )}
+                                        title={t(
+                                            "dialog.tableEdit.addToGlossary",
+                                        )}
+                                        disabled={columnNamesBlank(col)}
+                                        onClick={() =>
+                                            handleAddColumnToGlossary(index)
+                                        }
+                                    >
+                                        <Plus size={12} />
+                                    </button>
+                                ) : (
+                                    <span aria-hidden="true" />
+                                )}
                                 <input
                                     className="erd-input"
                                     ref={(el) =>
@@ -1205,8 +1398,19 @@ export function TableEditDialog({
                             display: "flex",
                             gap: 8,
                             justifyContent: "flex-end",
+                            alignItems: "center",
                         }}
                     >
+                        {showDefaultColumnsButton ? (
+                            <button
+                                type="button"
+                                className="erd-btn erd-btn--ghost"
+                                style={{ marginRight: "auto" }}
+                                onClick={handleCreateDefaultColumns}
+                            >
+                                {t("dialog.tableEdit.createDefaultColumns")}
+                            </button>
+                        ) : null}
                         <button
                             type="button"
                             className="erd-btn erd-btn--ghost"

@@ -42,6 +42,7 @@ export const enBundle: Record<I18nKey, string> = {
     "{{toggle}}: {{state}} ({{shortcuts}})",
   "toolbar.panel.hide": "Hide panel",
   "toolbar.panel.show": "Show panel",
+  "toolbar.glossary": "Glossary",
   "canvas.emptyHint": "Start with the “New ER” button.",
   "context.edge.hideLine": "Hide",
   "context.edge.showLine": "Show",
@@ -126,6 +127,20 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.cancel": "Cancel",
   "dialog.save": "Save",
   "dialog.close": "Close",
+  "dialog.tableEdit.createDefaultColumns": "Create default columns",
+  "dialog.tableEdit.addToGlossary": "Add/update glossary",
+  "dialog.tableEdit.glossaryNeedsBothNames":
+    "Both logical and physical names are required to add to the glossary.",
+  "dialog.tableEdit.glossaryAdded": "Added to glossary.",
+  "dialog.tableEdit.glossaryUpdated": "Updated glossary.",
+  "dialog.glossary.title": "Glossary",
+  "dialog.glossary.logicalName": "Logical name",
+  "dialog.glossary.physicalName": "Physical name",
+  "dialog.glossary.add": "Add row",
+  "dialog.glossary.deleteSelected": "Delete selected",
+  "dialog.glossary.applySelected": "Apply selected",
+  "dialog.glossary.selectAll": "Select all",
+  "dialog.glossary.empty": "No glossary entries.",
   "designer.defaultTableLogicalName": "Table{{n}}",
   "designer.defaultColumnName": "Column1"
 };

@@ -61,11 +61,16 @@ const table = {
 
 ## Core Concepts
 
-- `DesignDocument`: ER JSON source of truth
+- `DesignDocument`: ER JSON source of truth (includes optional `glossary`)
+- `GlossaryEntry`: `{ id, logicalName, physicalName }` term mapped in the document
 - `RdbmsDialect`: dialect id stored in document
 - `LogicalDataType`: normalized logical type ids
 - `DialectMetaJson`: host-overridable per-dialect metadata
 - `DdlGeneratorHook`: optional per-dialect SQL generation hook
+
+## Glossary
+
+`DesignDocument.glossary?: GlossaryEntry[]` stores a logical↔physical name dictionary with the design JSON (serialize/parse/validate). Omit or leave empty when unused; loaders treat a missing glossary as `[]`. Incomplete entries (blank logical or physical name) are skipped on normalize.
 
 ## Relationship Model Notes
 
@@ -75,7 +80,9 @@ const table = {
 - `canvasLineHidden?: boolean`
 - `linePivotRatio?: number` (middle vertical segment ratio)
 - `sourceLineY?: number` (source edge absolute Y inside table)
-- `sourceLineRatio?: number` (legacy fallback; kept for compatibility)
+- `sourceLineRatio?: number` (legacy fallback when `sourceLineY` is absent)
+- `targetLineY?: number` (target edge absolute Y inside table)
+- `targetLineRatio?: number` (fallback when `targetLineY` is absent)
 
 ## Host-Extensible DB Metadata
 
@@ -153,7 +160,7 @@ const sql = generateDdlForSelection(doc, ["table-users"], {
 ## Notes
 
 - DDL function hooks are runtime values and are **not serialized** in `DesignDocument`.
-- `DesignDocument` stores only dialect id and model data.
+- `DesignDocument` stores dialect id, model data, layout, optional settings, and optional `glossary`.
 
 ## License
 

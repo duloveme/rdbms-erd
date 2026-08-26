@@ -289,6 +289,13 @@
   pointer-events: all;
 }
 
+.erd-edge-target-handle {
+  fill: #ffffff;
+  stroke: var(--erd-primary);
+  stroke-width: 1.5;
+  pointer-events: all;
+}
+
 .erd-edge-context-menu {
   min-width: 168px;
   padding: 4px 0;
@@ -631,6 +638,11 @@
 }
 
 .erd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
   padding: 8px 14px;
   border-radius: 8px;
   font-size: 13px;
@@ -753,11 +765,11 @@
 }
 
 .erd-dialog-col-grid--logical {
-  grid-template-columns: minmax(0, 1fr) 132px 26px 26px 68px 22px 22px 240px;
+  grid-template-columns: minmax(0, 1fr) 132px 26px 26px 68px 22px 22px 22px 240px;
 }
 
 .erd-dialog-col-grid--physical {
-  grid-template-columns: minmax(0, 1fr) 124px 86px 26px 26px 68px 22px 22px 240px;
+  grid-template-columns: minmax(0, 1fr) 124px 86px 26px 26px 68px 22px 22px 22px 240px;
 }
 
 /* 테이블 편집: 컬럼 목록 — 행 간 여백 없이 구분선만 */

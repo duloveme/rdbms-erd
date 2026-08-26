@@ -96,7 +96,8 @@ describe("relationshipEdges composite group", () => {
         expect(edges).toHaveLength(1);
         expect(edges[0]?.data?.relationshipIds).toEqual(["r1", "r2"]);
         expect(edges[0]?.id).toBe("r1");
-        expect(edges[0]?.targetHandle ?? "").toContain("fk1");
+        // Child 끝점: 부모 마지막 PK(pk2)에 대응하는 FK(fk2)
+        expect(edges[0]?.targetHandle ?? "").toContain("fk2");
     });
 
     it("ratio-only composite group edge matches first PK row Y", () => {
@@ -213,5 +214,78 @@ describe("relationshipEdges composite group", () => {
         expect(y).toBe(
             relationshipRowCenterTopPx(idx, table.columns.length),
         );
+    });
+
+    it("includes targetLineY from FK row and targetHandle when drag callback set", () => {
+        const model: DesignModel = {
+            dialect: "postgres",
+            tables: [
+                {
+                    id: "a",
+                    logicalName: "A",
+                    physicalName: "TA",
+                    columns: [
+                        createColumn("postgres", {
+                            id: "pk1",
+                            logicalName: "k1",
+                            physicalName: "k1",
+                            logicalType: "NUMBER",
+                            nullable: false,
+                            isPrimaryKey: true,
+                        }),
+                    ],
+                },
+                {
+                    id: "b",
+                    logicalName: "B",
+                    physicalName: "TB",
+                    columns: [
+                        createColumn("postgres", {
+                            id: "fk1",
+                            logicalName: "k1",
+                            physicalName: "fk_k1",
+                            logicalType: "NUMBER",
+                            nullable: true,
+                            isForeignKey: true,
+                            referencesPrimaryColumnId: "pk1",
+                        }),
+                    ],
+                },
+            ],
+            relationships: [
+                {
+                    id: "r1",
+                    sourceTableId: "a",
+                    targetTableId: "b",
+                    sourceColumnId: "pk1",
+                    targetColumnId: "fk1",
+                    cardinality: "1:N",
+                    targetLineRatio: 0.75,
+                },
+            ],
+            indexes: [],
+        };
+        const edgesOff = buildRelationshipFlowEdges(
+            model,
+            { a: { x: 0, y: 0 }, b: { x: 500, y: 0 } },
+            400,
+            false,
+        );
+        expect(edgesOff[0]?.data?.onTargetLineRatioChange).toBeUndefined();
+        expect(edgesOff[0]?.data?.targetLineY).toBeDefined();
+
+        const edgesOn = buildRelationshipFlowEdges(
+            model,
+            { a: { x: 0, y: 0 }, b: { x: 500, y: 0 } },
+            400,
+            false,
+            {
+                onTargetLineRatioChange: () => undefined,
+            },
+        );
+        expect(typeof edgesOn[0]?.data?.onTargetLineRatioChange).toBe(
+            "function",
+        );
+        expect(edgesOn[0]?.data?.targetLineRatio).toBe(0.75);
     });
 });

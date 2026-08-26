@@ -5,8 +5,40 @@ import {
     createEmptyDesign,
     DesignDocument,
 } from "@rdbms-erd/core";
-import { ERDDesigner, ERDDesignerHandle } from "@rdbms-erd/designer";
+import {
+    ERDDesigner,
+    ERDDesignerHandle,
+    type DefaultColumnSpec,
+    type GlossaryMatchKey,
+} from "@rdbms-erd/designer";
 import { useCallback, useRef, useState } from "react";
+
+const PLAYGROUND_DEFAULT_COLUMNS: readonly DefaultColumnSpec[] = [
+    {
+        logicalName: "생성일시",
+        physicalName: "CreateDateTime",
+        logicalType: "DATETIME",
+        physicalType: "DATETIME",
+    },
+    {
+        logicalName: "생성자",
+        physicalName: "CreateUserID",
+        logicalType: "TEXT",
+        physicalType: "VARCHAR(50)",
+    },
+    {
+        logicalName: "수정일시",
+        physicalName: "ChangeDateTime",
+        logicalType: "DATETIME",
+        physicalType: "DATETIME",
+    },
+    {
+        logicalName: "수정자",
+        physicalName: "ChangeUserID",
+        logicalType: "TEXT",
+        physicalType: "VARCHAR(50)",
+    },
+];
 
 function createTestDesign(): DesignDocument {
     const doc = createEmptyDesign("postgres");
@@ -846,6 +878,12 @@ export default function Page() {
         useState(true);
     const [showNewErButton, setShowNewErButton] = useState(true);
     const [tableWidth, setTableWidth] = useState(400);
+    const [
+        allowRelationshipTargetLineDrag,
+        setAllowRelationshipTargetLineDrag,
+    ] = useState(false);
+    const [glossaryMatchKey, setGlossaryMatchKey] =
+        useState<GlossaryMatchKey>("logical");
     const handleDesignChange = useCallback((doc: DesignDocument) => {
         setDesign(doc);
     }, []);
@@ -977,6 +1015,43 @@ export default function Page() {
                         style={{ width: 88, padding: "4px 8px" }}
                     />
                 </label>
+                <label
+                    style={{
+                        display: "inline-flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}
+                >
+                    <input
+                        type="checkbox"
+                        checked={allowRelationshipTargetLineDrag}
+                        onChange={(e) =>
+                            setAllowRelationshipTargetLineDrag(e.target.checked)
+                        }
+                    />
+                    allowRelationshipTargetLineDrag
+                </label>
+                <label
+                    style={{
+                        display: "inline-flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}
+                >
+                    glossaryMatchKey
+                    <select
+                        value={glossaryMatchKey}
+                        onChange={(e) =>
+                            setGlossaryMatchKey(
+                                e.target.value as GlossaryMatchKey,
+                            )
+                        }
+                        style={{ padding: "4px 8px" }}
+                    >
+                        <option value="logical">logical</option>
+                        <option value="physical">physical</option>
+                    </select>
+                </label>
                 <button
                     type="button"
                     onClick={() => setDesign(createTestDesign())}
@@ -1029,6 +1104,11 @@ export default function Page() {
                         }
                         showNewErButton={showNewErButton}
                         onSave={handleDesignSave}
+                        defaultColumns={PLAYGROUND_DEFAULT_COLUMNS}
+                        allowRelationshipTargetLineDrag={
+                            allowRelationshipTargetLineDrag
+                        }
+                        glossaryMatchKey={glossaryMatchKey}
                     />
                 </div>
             </section>

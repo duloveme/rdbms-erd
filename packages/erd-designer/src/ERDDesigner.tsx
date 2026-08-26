@@ -55,6 +55,7 @@ import {
     AlignVerticalJustifyEnd,
     AlignVerticalJustifyStart,
     AlignVerticalSpaceBetween,
+    CaseSensitive,
     ClipboardPaste,
     Copy,
     Eye,
@@ -106,6 +107,8 @@ import {
     planForeignKeyColumns,
     validateFkRenameRows,
 } from "./fkColumnPlan";
+import { GlossaryDialog } from "./GlossaryDialog";
+import type { GlossaryMatchKey } from "./glossary";
 import {
     TABLE_RELATIONSHIP_SOURCE_HANDLE_LEFT_ID,
     TABLE_RELATIONSHIP_SOURCE_HANDLE_RIGHT_ID,
@@ -121,6 +124,7 @@ import {
     resolveFlowPaneElement,
 } from "./placement";
 import { TableEditDialog } from "./TableEditDialog";
+import type { DefaultColumnSpec } from "./defaultColumns";
 
 export type CanvasDisplayMode = "logical" | "physical";
 export type DesignerThemeMode = "light" | "dark";
@@ -375,6 +379,7 @@ function RelationshipEdge({
     selected,
 }: RelationshipEdgeComponentProps) {
     const SOURCE_HANDLE_OUTSET_PX = 6;
+    const TARGET_HANDLE_OUTSET_PX = 6;
     const edgeData = data as RelationshipEdgeData | undefined;
     const relationshipId = edgeData?.relationshipIds?.[0];
     const sourceAnchorMinY = edgeData?.sourceAnchorMinY ?? sourceY;
@@ -392,12 +397,32 @@ function RelationshipEdge({
         sourcePosition === Position.Left
             ? sourceX + SOURCE_HANDLE_OUTSET_PX
             : sourceX - SOURCE_HANDLE_OUTSET_PX;
+
+    const targetAnchorMinY = edgeData?.targetAnchorMinY ?? 0;
+    const targetAnchorMaxY = edgeData?.targetAnchorMaxY ?? 0;
+    const targetHandleLocalY = Number.isFinite(edgeData?.targetHandleLocalY)
+        ? Number(edgeData?.targetHandleLocalY)
+        : HANDLE_TOP;
+    const targetTableTopY = targetY - targetHandleLocalY;
+    const targetLineY = Number.isFinite(edgeData?.targetLineY)
+        ? Number(edgeData?.targetLineY)
+        : targetHandleLocalY;
+    const localTargetY = Math.max(
+        targetAnchorMinY,
+        Math.min(targetAnchorMaxY || targetLineY, targetLineY),
+    );
+    const effectiveTargetY = targetTableTopY + localTargetY;
+    const targetBorderX =
+        targetPosition === Position.Left
+            ? targetX + TARGET_HANDLE_OUTSET_PX
+            : targetX - TARGET_HANDLE_OUTSET_PX;
+
     const routeInfo = buildRelationshipRouteInfo({
         sourceX: sourceBorderX,
         sourceY: effectiveSourceY,
         sourcePosition,
         targetX,
-        targetY,
+        targetY: effectiveTargetY,
         targetPosition,
         ratio: edgeData?.linePivotRatio,
     });
@@ -405,6 +430,7 @@ function RelationshipEdge({
     const cardinality = edgeData?.cardinality ?? "1:N";
     const onLinePivotRatioChange = edgeData?.onLinePivotRatioChange;
     const onSourceLineRatioChange = edgeData?.onSourceLineRatioChange;
+    const onTargetLineRatioChange = edgeData?.onTargetLineRatioChange;
     // 끝단 표식은 "타깃으로 진입하는 방향" 기준으로 계산한다.
     const [ux, uy] =
         targetPosition === Position.Left
@@ -417,7 +443,7 @@ function RelationshipEdge({
                   ? [0, -1]
                   : (() => {
                         const dx = targetX - sourceBorderX;
-                        const dy = targetY - effectiveSourceY;
+                        const dy = effectiveTargetY - effectiveSourceY;
                         const len = Math.hypot(dx, dy) || 1;
                         return [dx / len, dy / len] as const;
                     })();
@@ -429,26 +455,26 @@ function RelationshipEdge({
     const markStroke = elevated ? "#dc2626" : stroke;
     const barHalf = 5;
     const bar1x = targetX - ux * 18;
-    const bar1y = targetY - uy * 18;
+    const bar1y = effectiveTargetY - uy * 18;
     const bar1 = `M ${bar1x - px * barHalf} ${bar1y - py * barHalf} L ${bar1x + px * barHalf} ${bar1y + py * barHalf}`;
     const symbolPath =
         cardinality === "1:1"
             ? (() => {
                   // 1:N과 동일하게 "세로선(바)"은 1개만 두고, 뒤쪽은 단일 선으로 표현한다.
                   const ox = targetX - ux * 11;
-                  const oy = targetY - uy * 11;
-                  const one = `M ${ox} ${oy} L ${targetX} ${targetY}`;
+                  const oy = effectiveTargetY - uy * 11;
+                  const one = `M ${ox} ${oy} L ${targetX} ${effectiveTargetY}`;
                   return `${bar1} ${one}`;
               })()
             : (() => {
                   const ox = targetX - ux * 11;
-                  const oy = targetY - uy * 11;
+                  const oy = effectiveTargetY - uy * 11;
                   const upx = targetX + px * 6;
-                  const upy = targetY + py * 6;
+                  const upy = effectiveTargetY + py * 6;
                   const midx = targetX;
-                  const midy = targetY;
+                  const midy = effectiveTargetY;
                   const downx = targetX - px * 6;
-                  const downy = targetY - py * 6;
+                  const downy = effectiveTargetY - py * 6;
                   const crow = `M ${ox} ${oy} L ${upx} ${upy} M ${ox} ${oy} L ${midx} ${midy} M ${ox} ${oy} L ${downx} ${downy}`;
                   return `${bar1} ${crow}`;
               })();
@@ -499,7 +525,7 @@ function RelationshipEdge({
                     onLinePivotRatioChange(relationshipId, next);
                     return;
                 }
-                const height = targetY - effectiveSourceY;
+                const height = effectiveTargetY - effectiveSourceY;
                 if (Math.abs(height) < 1e-6) return;
                 const next = clamp01((point.y - effectiveSourceY) / height);
                 onLinePivotRatioChange(relationshipId, next);
@@ -524,9 +550,9 @@ function RelationshipEdge({
             routeInfo.primaryAxis,
             sourceBorderX,
             effectiveSourceY,
+            effectiveTargetY,
             sourcePosition,
             targetX,
-            targetY,
             targetPosition,
         ],
     );
@@ -585,6 +611,60 @@ function RelationshipEdge({
         ],
     );
 
+    const onTargetPointerDown = useCallback(
+        (e: React.PointerEvent<SVGCircleElement>) => {
+            if (!relationshipId || !onTargetLineRatioChange) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const svg = e.currentTarget.ownerSVGElement;
+            if (!svg) return;
+
+            const toSvgPoint = (
+                clientX: number,
+                clientY: number,
+            ): { x: number; y: number } | null => {
+                const matrix = svg.getScreenCTM();
+                if (!matrix) return null;
+                const point = svg.createSVGPoint();
+                point.x = clientX;
+                point.y = clientY;
+                const transformed = point.matrixTransform(matrix.inverse());
+                return { x: transformed.x, y: transformed.y };
+            };
+
+            const updateRatio = (clientX: number, clientY: number) => {
+                const point = toSvgPoint(clientX, clientY);
+                if (!point) return;
+                const next = Math.max(
+                    targetAnchorMinY,
+                    Math.min(targetAnchorMaxY, point.y - targetTableTopY),
+                );
+                const span = Math.max(1, targetAnchorMaxY - targetAnchorMinY);
+                const ratio = clamp01((next - targetAnchorMinY) / span);
+                onTargetLineRatioChange(relationshipId, ratio);
+            };
+
+            const handleMove = (event: PointerEvent) => {
+                event.preventDefault();
+                updateRatio(event.clientX, event.clientY);
+            };
+            const handleUp = () => {
+                window.removeEventListener("pointermove", handleMove);
+                window.removeEventListener("pointerup", handleUp);
+            };
+            window.addEventListener("pointermove", handleMove);
+            window.addEventListener("pointerup", handleUp);
+            updateRatio(e.clientX, e.clientY);
+        },
+        [
+            onTargetLineRatioChange,
+            relationshipId,
+            targetAnchorMaxY,
+            targetAnchorMinY,
+            targetTableTopY,
+        ],
+    );
+
     return (
         <g className={className}>
             <BaseEdge id={id} path={path} style={style} />
@@ -618,6 +698,16 @@ function RelationshipEdge({
                     r={6}
                     style={{ cursor: "ns-resize" }}
                     onPointerDown={onSourcePointerDown}
+                />
+            ) : null}
+            {selected && relationshipId && onTargetLineRatioChange ? (
+                <circle
+                    className="erd-edge-target-handle"
+                    cx={targetBorderX}
+                    cy={effectiveTargetY}
+                    r={6}
+                    style={{ cursor: "ns-resize" }}
+                    onPointerDown={onTargetPointerDown}
                 />
             ) : null}
         </g>
@@ -1059,6 +1149,21 @@ export interface ERDDesignerProps {
      * TEXT 미지정 시 `VARCHAR(20)` (`PACKAGE_DEFAULT_PHYSICAL_TYPE_TEXT`).
      */
     defaultPhysicalTypes?: Partial<Record<LogicalDataType, string>>;
+    /**
+     * Table 편집 대화상자「기본컬럼 생성」템플릿.
+     * 비어 있거나 생략하면 버튼을 숨긴다.
+     */
+    defaultColumns?: readonly DefaultColumnSpec[];
+    /**
+     * 선택 시 Child(끝점) 세로 드래그 허용.
+     * 기본 false — FK 컬럼 행 중앙에 고정.
+     */
+    allowRelationshipTargetLineDrag?: boolean;
+    /**
+     * Glossary 매칭·Upsert·일괄적용 키(논리명 또는 물리명).
+     * 기본 `logical`. Glossary 대화상자 컬럼 순서에도 반영.
+     */
+    glossaryMatchKey?: GlossaryMatchKey;
 }
 
 export type ERDDesignerShellProps = Omit<
@@ -1117,6 +1222,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             fallbackOnHookError = true,
             onExportExcel,
             defaultPhysicalTypes,
+            defaultColumns,
+            allowRelationshipTargetLineDrag = false,
+            glossaryMatchKey = "logical",
         },
         ref,
     ) {
@@ -1171,6 +1279,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
         const setRelationshipSourceLineRatio = useDesignerStore(
             (s) => s.setRelationshipSourceLineRatio,
+        );
+        const setRelationshipTargetLineRatio = useDesignerStore(
+            (s) => s.setRelationshipTargetLineRatio,
+        );
+        const setGlossary = useDesignerStore((s) => s.setGlossary);
+        const upsertGlossaryEntry = useDesignerStore(
+            (s) => s.upsertGlossaryEntry,
+        );
+        const applyGlossaryToTables = useDesignerStore(
+            (s) => s.applyGlossaryToTables,
         );
 
         const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -1249,6 +1367,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         );
         const [creatingTableDraft, setCreatingTableDraft] =
             useState<TableModel | null>(null);
+        const [glossaryDialogOpen, setGlossaryDialogOpen] = useState(false);
         const [createTableContext, setCreateTableContext] =
             useState<InternalCreateTableContext | null>(null);
         const [selectionDragArmed, setSelectionDragArmed] = useState(false);
@@ -1512,15 +1631,24 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         setRelationshipLinePivotRatio(relationshipId, ratio),
                     onSourceLineRatioChange: (relationshipId, ratio) =>
                         setRelationshipSourceLineRatio(relationshipId, ratio),
+                    onTargetLineRatioChange: allowRelationshipTargetLineDrag
+                        ? (relationshipId, ratio) =>
+                              setRelationshipTargetLineRatio(
+                                  relationshipId,
+                                  ratio,
+                              )
+                        : undefined,
                 },
             );
         }, [
+            allowRelationshipTargetLineDrag,
             doc.model,
             doc.layout.nodePositions,
             hasDesign,
             revealHiddenRelationshipLines,
             setRelationshipLinePivotRatio,
             setRelationshipSourceLineRatio,
+            setRelationshipTargetLineRatio,
             tableWidth,
         ]);
 
@@ -1615,6 +1743,36 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const onNodesChange = useCallback(
             (changes: NodeChange<Node<TableNodeData>>[]) => {
+                if (hasDesign && !layoutLocked) {
+                    const settled: Record<string, { x: number; y: number }> =
+                        {};
+                    let anyChanged = false;
+                    for (const change of changes) {
+                        if (
+                            change.type !== "position" ||
+                            change.dragging === true ||
+                            !change.position
+                        ) {
+                            continue;
+                        }
+                        const prev = doc.layout.nodePositions[change.id];
+                        const next = {
+                            x: change.position.x,
+                            y: change.position.y,
+                        };
+                        settled[change.id] = next;
+                        if (
+                            !prev ||
+                            prev.x !== next.x ||
+                            prev.y !== next.y
+                        ) {
+                            anyChanged = true;
+                        }
+                    }
+                    if (anyChanged) {
+                        setNodePositions(settled);
+                    }
+                }
                 setNodes((nds) => {
                     const nextNodes = applyNodeChanges(changes, nds);
                     if (!hasDesign) return nextNodes;
@@ -1644,6 +1802,14 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                     relationshipId,
                                     ratio,
                                 ),
+                            onTargetLineRatioChange:
+                                allowRelationshipTargetLineDrag
+                                    ? (relationshipId, ratio) =>
+                                          setRelationshipTargetLineRatio(
+                                              relationshipId,
+                                              ratio,
+                                          )
+                                    : undefined,
                         },
                     );
                     setEdges((prev) => {
@@ -1694,11 +1860,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 });
             },
             [
+                allowRelationshipTargetLineDrag,
+                doc.layout.nodePositions,
                 doc.model,
                 hasDesign,
+                layoutLocked,
                 revealHiddenRelationshipLines,
+                setNodePositions,
                 setRelationshipLinePivotRatio,
                 setRelationshipSourceLineRatio,
+                setRelationshipTargetLineRatio,
                 tableWidth,
             ],
         );
@@ -3214,6 +3385,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         <button
                             type="button"
                             className="erd-toolbar-btn"
+                            title={t("toolbar.glossary")}
+                            aria-label={t("toolbar.glossary")}
+                            onClick={() => setGlossaryDialogOpen(true)}
+                            disabled={toolbarDisabled}
+                        >
+                            <CaseSensitive size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-toolbar-btn"
                             title={t("toolbar.exportExcel")}
                             onClick={() => void exportExcel()}
                             disabled={toolbarDisabled}
@@ -4092,6 +4273,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     dialect={doc.model.dialect}
                     displayMode={displayMode}
                     coreOptions={coreOptions}
+                    defaultColumns={defaultColumns}
+                    glossary={doc.glossary ?? []}
+                    glossaryMatchKey={glossaryMatchKey}
+                    onUpsertGlossaryEntry={(entry) =>
+                        upsertGlossaryEntry(entry, glossaryMatchKey)
+                    }
                     tablesForDuplicateCheck={doc.model.tables}
                     onClose={() => setEditingTableId(null)}
                     onSave={(t) => {
@@ -4111,6 +4298,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     dialect={doc.model.dialect}
                     displayMode={displayMode}
                     coreOptions={coreOptions}
+                    defaultColumns={defaultColumns}
+                    glossary={doc.glossary ?? []}
+                    glossaryMatchKey={glossaryMatchKey}
+                    onUpsertGlossaryEntry={(entry) =>
+                        upsertGlossaryEntry(entry, glossaryMatchKey)
+                    }
                     tablesForDuplicateCheck={doc.model.tables}
                     onClose={() => {
                         setCreatingTableDraft(null);
@@ -4170,6 +4363,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         setCreatingTableDraft(null);
                         setCreateTableContext(null);
                     }}
+                />
+                <GlossaryDialog
+                    open={glossaryDialogOpen}
+                    entries={doc.glossary ?? []}
+                    glossaryMatchKey={glossaryMatchKey}
+                    onClose={() => setGlossaryDialogOpen(false)}
+                    onChange={setGlossary}
+                    onApplySelected={(entryIds) =>
+                        applyGlossaryToTables(entryIds, glossaryMatchKey)
+                    }
                 />
                 {deleteConfirmDialog ? (
                     <div className="erd-dialog-backdrop" role="presentation">

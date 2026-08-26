@@ -6,6 +6,7 @@ export type {
     DesignDocument,
     DesignModel,
     DiagramLayout,
+    GlossaryEntry,
     IndexModel,
     LogicalDataType,
     RelationshipModel,
@@ -39,6 +40,23 @@ export type {
 } from "./ERDDesigner";
 export { TableEditDialog } from "./TableEditDialog";
 export type { TableEditDialogProps } from "./TableEditDialog";
+export { GlossaryDialog } from "./GlossaryDialog";
+export type { GlossaryDialogProps } from "./GlossaryDialog";
+export type { DefaultColumnSpec } from "./defaultColumns";
+export {
+    appendDefaultColumns,
+    preserveDefaultColumnPhysicalTypes,
+} from "./defaultColumns";
+export {
+    applyGlossaryToTables,
+    fillOppositeNamesFromGlossary,
+    findGlossaryMatch,
+    lookupLogicalName,
+    lookupPhysicalName,
+    removeGlossaryEntries,
+    upsertGlossaryEntry,
+} from "./glossary";
+export type { GlossaryMatchKey } from "./glossary";
 export { createDesignerStore } from "./createDesignerStore";
 export { ErdI18nProvider, useErdI18n, useErdTranslator } from "./i18n/I18nContext";
 export type { ErdI18nProviderProps, ErdI18nContextValue } from "./i18n/I18nContext";

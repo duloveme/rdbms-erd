@@ -80,6 +80,10 @@ export interface RelationshipModel {
     sourceLineY?: number;
     /** @deprecated legacy ratio(0~1). sourceLineY가 없을 때만 fallback으로 사용 */
     sourceLineRatio?: number;
+    /** 도착(타깃) 엣지의 테이블 내부 절대 Y 좌표(px). */
+    targetLineY?: number;
+    /** 도착(타깃) 세로 비율(0~1). targetLineY가 없을 때 사용 */
+    targetLineRatio?: number;
     /** 관계선의 중간 꺾임 위치 비율(0~1). 두 테이블 앵커 사이의 비율로 저장한다. */
     linePivotRatio?: number;
     /** true이면 캔버스에서 해당 관계선을 기본적으로 숨긴다. 툴의「숨긴 관계선 보기」로만 표시 가능. */
@@ -158,11 +162,19 @@ export interface DesignModel {
     indexes: IndexModel[];
 }
 
+export interface GlossaryEntry {
+    id: string;
+    logicalName: string;
+    physicalName: string;
+}
+
 export interface DesignDocument {
     schemaVersion: number;
     model: DesignModel;
     layout: DiagramLayout;
     settings?: Record<string, unknown>;
+    /** 논리명↔물리명 용어집. 생략 시 빈 배열로 취급. */
+    glossary?: GlossaryEntry[];
 }
 
 export interface DialectCapability {
@@ -930,6 +942,7 @@ export function createEmptyDesign(
         layout: {
             nodePositions: {},
         },
+        glossary: [],
     };
 }
 
@@ -985,9 +998,31 @@ export function validateDesignDocument(
     }
 
     const doc = input as unknown as DesignDocument;
+    doc.glossary = normalizeGlossary(input.glossary);
     migrateLegacyFkLineVisibility(doc.model);
     normalizeColumnDefaultValues(doc.model);
     return ensureUniqueDesignIds(doc);
+}
+
+function normalizeGlossary(value: unknown): GlossaryEntry[] {
+    if (value === undefined || value === null) return [];
+    if (!Array.isArray(value)) {
+        throw new Error("Invalid design document: glossary must be an array");
+    }
+    const out: GlossaryEntry[] = [];
+    for (const item of value) {
+        if (!isObject(item)) continue;
+        const id = typeof item.id === "string" ? item.id.trim() : "";
+        const logicalName =
+            typeof item.logicalName === "string" ? item.logicalName.trim() : "";
+        const physicalName =
+            typeof item.physicalName === "string"
+                ? item.physicalName.trim()
+                : "";
+        if (!id || !logicalName || !physicalName) continue;
+        out.push({ id, logicalName, physicalName });
+    }
+    return out;
 }
 
 export function roundTripDesign(doc: DesignDocument): DesignDocument {
