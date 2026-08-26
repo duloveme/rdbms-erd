@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     findReusableFkColumn,
+    findTargetPkColumnsForPhysicalMerge,
     fkPhysicalInputShowsConflict,
     fkPlanNeedsRenameDialog,
     physicalNameCollidesWithBoundFk,
@@ -238,5 +239,101 @@ describe("fkColumnPlan", () => {
         ];
         expect(physicalNameUsedOnTarget(cols, "foo")).toBe(true);
         expect(physicalNameUsedOnTarget(cols, "foo", "c1")).toBe(false);
+    });
+
+    it("findTargetPkColumnsForPhysicalMerge returns PK columns kept by name", () => {
+        const cols = [
+            createColumn("postgres", {
+                id: "pk",
+                logicalName: "ID",
+                logicalType: "NUMBER",
+                physicalName: "id",
+                nullable: false,
+                isPrimaryKey: true,
+            }),
+            createColumn("postgres", {
+                id: "name",
+                logicalName: "Name",
+                logicalType: "TEXT",
+                physicalName: "name",
+            }),
+        ];
+        const pkHits = findTargetPkColumnsForPhysicalMerge(
+            cols,
+            [],
+            "s",
+            "t",
+            [
+                {
+                    sourceColumnId: "spk",
+                    logicalName: "id",
+                    physicalName: "id",
+                },
+            ],
+        );
+        expect(pkHits.map((c) => c.id)).toEqual(["pk"]);
+
+        const nonPk = findTargetPkColumnsForPhysicalMerge(
+            cols,
+            [],
+            "s",
+            "t",
+            [
+                {
+                    sourceColumnId: "spk",
+                    logicalName: "name",
+                    physicalName: "name",
+                },
+            ],
+        );
+        expect(nonPk).toEqual([]);
+
+        const renamed = findTargetPkColumnsForPhysicalMerge(
+            cols,
+            [],
+            "s",
+            "t",
+            [
+                {
+                    sourceColumnId: "spk",
+                    logicalName: "parent_id",
+                    physicalName: "parent_id",
+                },
+            ],
+        );
+        expect(renamed).toEqual([]);
+    });
+
+    it("findTargetPkColumnsForPhysicalMerge skips already-bound FK PK pairs", () => {
+        const cols = [
+            createColumn("postgres", {
+                id: "pk",
+                logicalName: "ID",
+                logicalType: "NUMBER",
+                physicalName: "id",
+                nullable: false,
+                isPrimaryKey: true,
+                isForeignKey: true,
+                referencesPrimaryColumnId: "spk",
+            }),
+        ];
+        const relationships: RelationshipModel[] = [
+            {
+                id: "r1",
+                sourceTableId: "s",
+                targetTableId: "t",
+                sourceColumnId: "spk",
+                targetColumnId: "pk",
+            },
+        ];
+        expect(
+            findTargetPkColumnsForPhysicalMerge(cols, relationships, "s", "t", [
+                {
+                    sourceColumnId: "spk",
+                    logicalName: "id",
+                    physicalName: "id",
+                },
+            ]),
+        ).toEqual([]);
     });
 });

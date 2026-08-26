@@ -76,6 +76,10 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.error.boundFk":
     "That physical name is already used by an FK bound to this parent key. Choose a different name to add another relationship.",
   "dialog.fkCollision.confirm": "Create relationship",
+  "dialog.fkCollision.pkMerge.title": "Link FK to a primary key column",
+  "dialog.fkCollision.pkMerge.message":
+    "The following column(s) are primary keys (PK) on the target table.\n{{columns}}\n\nCreate the relationship and also use them as foreign keys?",
+  "dialog.fkCollision.pkMerge.confirm": "Continue",
   "dialog.confirm.unsaved.title": "You have unsaved changes.",
   "dialog.confirm.unsaved.newEr": "Current ER has unsaved changes. Continue and create a new ER?",
   "dialog.confirm.tableEdit.closeTitle": "Close table editor",

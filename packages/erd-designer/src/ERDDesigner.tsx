@@ -102,6 +102,7 @@ import { ErdI18nProvider, useErdI18n } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
 import {
     findReusableFkColumn,
+    findTargetPkColumnsForPhysicalMerge,
     fkPhysicalInputShowsConflict,
     fkPlanNeedsRenameDialog,
     isPkFkPairAlreadyRelated,
@@ -1207,6 +1208,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         const [fkCollisionErrorKey, setFkCollisionErrorKey] = useState<
             "empty" | "dupWithin" | "boundFk" | null
         >(null);
+        const [fkPkMergeConfirm, setFkPkMergeConfirm] = useState<{
+            columnLabels: string[];
+        } | null>(null);
         const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
             tableIds: string[];
             relationshipIds: string[];
@@ -2121,6 +2125,28 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             ],
         );
 
+        const finalizeFkCollisionDialog = useCallback(() => {
+            if (!fkCollisionDialog) return;
+            const map = new Map(
+                fkCollisionDialog.rows.map((r) => [
+                    r.sourceColumnId,
+                    {
+                        logicalName: r.logicalName.trim(),
+                        physicalName: r.physicalName.trim(),
+                    },
+                ]),
+            );
+            applyForeignKeyBatch(
+                fkCollisionDialog.sourceTableId,
+                fkCollisionDialog.targetTableId,
+                fkCollisionDialog.sourceColumnId,
+                map,
+            );
+            setFkCollisionDialog(null);
+            setFkCollisionErrorKey(null);
+            setFkPkMergeConfirm(null);
+        }, [applyForeignKeyBatch, fkCollisionDialog]);
+
         const confirmFkCollisionDialog = useCallback(() => {
             if (!fkCollisionDialog) return;
             const latestDoc = useDesignerStore.getState().doc;
@@ -2143,24 +2169,28 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 setFkCollisionErrorKey(v.messageKey);
                 return;
             }
-            const map = new Map(
-                fkCollisionDialog.rows.map((r) => [
-                    r.sourceColumnId,
-                    {
-                        logicalName: r.logicalName.trim(),
-                        physicalName: r.physicalName.trim(),
-                    },
-                ]),
-            );
-            applyForeignKeyBatch(
+            const pkMergeTargets = findTargetPkColumnsForPhysicalMerge(
+                targetTable.columns,
+                latestDoc.model.relationships,
                 fkCollisionDialog.sourceTableId,
                 fkCollisionDialog.targetTableId,
-                fkCollisionDialog.sourceColumnId,
-                map,
+                draftRows,
             );
-            setFkCollisionDialog(null);
-            setFkCollisionErrorKey(null);
-        }, [applyForeignKeyBatch, fkCollisionDialog, useDesignerStore]);
+            if (pkMergeTargets.length > 0) {
+                setFkPkMergeConfirm({
+                    columnLabels: pkMergeTargets.map(
+                        (c) =>
+                            `${c.logicalName || c.physicalName} / ${c.physicalName}`,
+                    ),
+                });
+                return;
+            }
+            finalizeFkCollisionDialog();
+        }, [
+            finalizeFkCollisionDialog,
+            fkCollisionDialog,
+            useDesignerStore,
+        ]);
 
         const connectWithForeignKey = useCallback(
             (
@@ -2206,6 +2236,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         ),
                     );
                     setFkCollisionErrorKey(null);
+                    setFkPkMergeConfirm(null);
                     setFkCollisionDialog({
                         sourceTableId,
                         targetTableId,
@@ -2865,6 +2896,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 if (
                     newErDialogOpen ||
                     fkCollisionDialog ||
+                    fkPkMergeConfirm ||
                     deleteConfirmDialog ||
                     simpleTableDeleteConfirm ||
                     editingTableId !== null ||
@@ -3009,6 +3041,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             doc,
             editingTableId,
             fkCollisionDialog,
+            fkPkMergeConfirm,
             hasDesign,
             isDirty,
             layoutLocked,
@@ -4531,6 +4564,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                                                         setFkCollisionErrorKey(
                                                                             null,
                                                                         );
+                                                                        setFkPkMergeConfirm(
+                                                                            null,
+                                                                        );
                                                                     }}
                                                                 />
                                                             </td>
@@ -4591,6 +4627,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                                                         setFkCollisionErrorKey(
                                                                             null,
                                                                         );
+                                                                        setFkPkMergeConfirm(
+                                                                            null,
+                                                                        );
                                                                     }}
                                                                 />
                                                             </td>
@@ -4609,6 +4648,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                     onClick={() => {
                                         setFkCollisionDialog(null);
                                         setFkCollisionErrorKey(null);
+                                        setFkPkMergeConfirm(null);
                                     }}
                                 >
                                     {t("dialog.cancel")}
@@ -4619,6 +4659,55 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                     onClick={confirmFkCollisionDialog}
                                 >
                                     {t("dialog.fkCollision.confirm")}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ) : null}
+                {fkPkMergeConfirm ? (
+                    <div className="erd-dialog-backdrop" role="presentation">
+                        <div
+                            className="erd-dialog"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="erd-fk-pk-merge-title"
+                            style={{ width: "min(480px, 100%)", height: "auto" }}
+                        >
+                            <div className="erd-dialog-header">
+                                <span id="erd-fk-pk-merge-title">
+                                    {t("dialog.fkCollision.pkMerge.title")}
+                                </span>
+                            </div>
+                            <div className="erd-dialog-body">
+                                <p
+                                    style={{
+                                        margin: 0,
+                                        fontSize: 13,
+                                        color: "#334155",
+                                        whiteSpace: "pre-wrap",
+                                    }}
+                                >
+                                    {t("dialog.fkCollision.pkMerge.message", {
+                                        columns: fkPkMergeConfirm.columnLabels
+                                            .map((label) => `• ${label}`)
+                                            .join("\n"),
+                                    })}
+                                </p>
+                            </div>
+                            <div className="erd-dialog-footer">
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--ghost"
+                                    onClick={() => setFkPkMergeConfirm(null)}
+                                >
+                                    {t("dialog.cancel")}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--primary"
+                                    onClick={finalizeFkCollisionDialog}
+                                >
+                                    {t("dialog.fkCollision.pkMerge.confirm")}
                                 </button>
                             </div>
                         </div>

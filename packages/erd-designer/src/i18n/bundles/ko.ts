@@ -76,6 +76,10 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.error.boundFk":
     "이미 이 부모 키와 연결된 FK의 물리명입니다. 추가 릴레이션을 만들려면 다른 이름을 입력하세요.",
   "dialog.fkCollision.confirm": "릴레이션 생성",
+  "dialog.fkCollision.pkMerge.title": "기본 키 컬럼에 FK 연결",
+  "dialog.fkCollision.pkMerge.message":
+    "다음 컬럼은 대상 테이블의 기본 키(PK)입니다.\n{{columns}}\n\n이 컬럼을 외래 키로도 사용하도록 릴레이션을 생성할까요?",
+  "dialog.fkCollision.pkMerge.confirm": "계속 생성",
   "dialog.confirm.unsaved.title": "저장되지 않은 변경사항이 있습니다.",
   "dialog.confirm.unsaved.newEr": "현재 ER가 수정 중입니다. 계속해서 새 ER를 생성할까요?",
   "dialog.confirm.tableEdit.closeTitle": "테이블 편집 닫기",

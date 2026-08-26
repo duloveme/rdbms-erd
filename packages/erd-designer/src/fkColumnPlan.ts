@@ -191,3 +191,40 @@ export function fkPhysicalInputShowsConflict(
     );
     return onTable || dupOtherRow;
 }
+
+/**
+ * 대화상자에서 물리명을 그대로 두면 FK로 바뀔 타깃 컬럼 중 PK인 것들.
+ * (이미 이 PK↔FK 쌍으로 묶인 컬럼은 validate의 boundFk에서 막히므로 여기선 제외)
+ */
+export function findTargetPkColumnsForPhysicalMerge(
+    targetColumns: readonly ColumnModel[],
+    relationships: readonly RelationshipModel[],
+    sourceTableId: string,
+    targetTableId: string,
+    draftRows: readonly FkRenameDraftRow[],
+): ColumnModel[] {
+    const found: ColumnModel[] = [];
+    const seen = new Set<string>();
+    for (const row of draftRows) {
+        const pp = row.physicalName.trim();
+        if (!pp) continue;
+        if (
+            physicalNameCollidesWithBoundFk(
+                targetColumns,
+                relationships,
+                sourceTableId,
+                targetTableId,
+                row.sourceColumnId,
+                pp,
+            )
+        ) {
+            continue;
+        }
+        const col = targetColumns.find((c) => c.physicalName.trim() === pp);
+        if (!col || !col.isPrimaryKey) continue;
+        if (seen.has(col.id)) continue;
+        seen.add(col.id);
+        found.push(col);
+    }
+    return found;
+}
