@@ -73,6 +73,8 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.error.empty": "논리명과 물리명은 비울 수 없습니다.",
   "dialog.fkCollision.error.dupWithin":
     "새 FK 컬럼끼리 물리명이 겹칩니다.",
+  "dialog.fkCollision.error.boundFk":
+    "이미 이 부모 키와 연결된 FK의 물리명입니다. 추가 릴레이션을 만들려면 다른 이름을 입력하세요.",
   "dialog.fkCollision.confirm": "릴레이션 생성",
   "dialog.confirm.unsaved.title": "저장되지 않은 변경사항이 있습니다.",
   "dialog.confirm.unsaved.newEr": "현재 ER가 수정 중입니다. 계속해서 새 ER를 생성할까요?",

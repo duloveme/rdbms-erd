@@ -1,4 +1,8 @@
-import type { ColumnModel, TableModel } from "@rdbms-erd/core";
+import type {
+    ColumnModel,
+    RelationshipModel,
+    TableModel,
+} from "@rdbms-erd/core";
 
 export type FkPlanRow = {
     sourceColumn: ColumnModel;
@@ -7,18 +11,64 @@ export type FkPlanRow = {
     proposedPhysical: string;
 };
 
+/** 부모 PK → 자식 컬럼 쌍으로 이미 릴레이션이 있는지. */
+export function isPkFkPairAlreadyRelated(
+    relationships: readonly RelationshipModel[],
+    sourceTableId: string,
+    targetTableId: string,
+    sourceColumnId: string,
+    targetColumnId: string,
+): boolean {
+    return relationships.some(
+        (r) =>
+            r.sourceTableId === sourceTableId &&
+            r.targetTableId === targetTableId &&
+            r.sourceColumnId === sourceColumnId &&
+            r.targetColumnId === targetColumnId,
+    );
+}
+
+/**
+ * 타깃 컬럼 중 이 부모 PK를 가리키는 FK를 찾되,
+ * 이미 릴레이션으로 묶인 컬럼은 제외한다(고아 FK만 재사용).
+ */
+export function findReusableFkColumn(
+    targetColumns: readonly ColumnModel[],
+    relationships: readonly RelationshipModel[],
+    sourceTableId: string,
+    targetTableId: string,
+    sourceColumnId: string,
+): ColumnModel | null {
+    return (
+        targetColumns.find(
+            (c) =>
+                c.isForeignKey &&
+                c.referencesPrimaryColumnId === sourceColumnId &&
+                !isPkFkPairAlreadyRelated(
+                    relationships,
+                    sourceTableId,
+                    targetTableId,
+                    sourceColumnId,
+                    c.id,
+                ),
+        ) ?? null
+    );
+}
+
 export function planForeignKeyColumns(
     sourceTable: TableModel,
     targetTable: TableModel,
     sourceColumns: ColumnModel[],
+    relationships: readonly RelationshipModel[] = [],
 ): FkPlanRow[] {
     return sourceColumns.map((sourceColumn) => {
-        const existingFkColumn =
-            targetTable.columns.find(
-                (c) =>
-                    c.isForeignKey &&
-                    c.referencesPrimaryColumnId === sourceColumn.id,
-            ) ?? null;
+        const existingFkColumn = findReusableFkColumn(
+            targetTable.columns,
+            relationships,
+            sourceTable.id,
+            targetTable.id,
+            sourceColumn.id,
+        );
         return {
             sourceColumn,
             reuseExisting: existingFkColumn,
@@ -38,6 +88,31 @@ export function physicalNameUsedOnTarget(
     return targetColumns.some(
         (c) =>
             c.id !== excludeColumnId && c.physicalName.trim() === p,
+    );
+}
+
+/**
+ * 물리명이 타깃에 있고, 그 컬럼이 이미 이 부모 PK와 릴레이션으로 묶여 있으면
+ * 병합하면 no-op가 되므로 다른 이름을 써야 한다.
+ */
+export function physicalNameCollidesWithBoundFk(
+    targetColumns: readonly ColumnModel[],
+    relationships: readonly RelationshipModel[],
+    sourceTableId: string,
+    targetTableId: string,
+    sourceColumnId: string,
+    physicalName: string,
+): boolean {
+    const p = physicalName.trim();
+    if (!p) return false;
+    const col = targetColumns.find((c) => c.physicalName.trim() === p);
+    if (!col) return false;
+    return isPkFkPairAlreadyRelated(
+        relationships,
+        sourceTableId,
+        targetTableId,
+        sourceColumnId,
+        col.id,
     );
 }
 
@@ -68,7 +143,13 @@ export type FkRenameDraftRow = {
 
 export function validateFkRenameRows(
     draftRows: FkRenameDraftRow[],
-): { ok: true } | { ok: false; messageKey: "empty" | "dupWithin" } {
+    options?: {
+        targetColumns?: readonly ColumnModel[];
+        relationships?: readonly RelationshipModel[];
+        sourceTableId?: string;
+        targetTableId?: string;
+    },
+): { ok: true } | { ok: false; messageKey: "empty" | "dupWithin" | "boundFk" } {
     const physSet = new Set<string>();
     for (const row of draftRows) {
         const lp = row.logicalName.trim();
@@ -76,6 +157,22 @@ export function validateFkRenameRows(
         if (!lp || !pp) return { ok: false, messageKey: "empty" };
         if (physSet.has(pp)) return { ok: false, messageKey: "dupWithin" };
         physSet.add(pp);
+        if (
+            options?.targetColumns &&
+            options.relationships &&
+            options.sourceTableId &&
+            options.targetTableId &&
+            physicalNameCollidesWithBoundFk(
+                options.targetColumns,
+                options.relationships,
+                options.sourceTableId,
+                options.targetTableId,
+                row.sourceColumnId,
+                pp,
+            )
+        ) {
+            return { ok: false, messageKey: "boundFk" };
+        }
     }
     return { ok: true };
 }

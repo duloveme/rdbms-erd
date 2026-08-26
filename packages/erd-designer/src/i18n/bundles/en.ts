@@ -73,6 +73,8 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.error.empty": "Logical and physical names must be non-empty.",
   "dialog.fkCollision.error.dupWithin":
     "Duplicate physical names between the new FK columns.",
+  "dialog.fkCollision.error.boundFk":
+    "That physical name is already used by an FK bound to this parent key. Choose a different name to add another relationship.",
   "dialog.fkCollision.confirm": "Create relationship",
   "dialog.confirm.unsaved.title": "You have unsaved changes.",
   "dialog.confirm.unsaved.newEr": "Current ER has unsaved changes. Continue and create a new ER?",

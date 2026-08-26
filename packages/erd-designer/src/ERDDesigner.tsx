@@ -101,8 +101,10 @@ import { createId } from "./id";
 import { ErdI18nProvider, useErdI18n } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
 import {
+    findReusableFkColumn,
     fkPhysicalInputShowsConflict,
     fkPlanNeedsRenameDialog,
+    isPkFkPairAlreadyRelated,
     physicalNameUsedOnTarget,
     planForeignKeyColumns,
     validateFkRenameRows,
@@ -1389,7 +1391,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             }>;
         } | null>(null);
         const [fkCollisionErrorKey, setFkCollisionErrorKey] = useState<
-            "empty" | "dupWithin" | null
+            "empty" | "dupWithin" | "boundFk" | null
         >(null);
         const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
             tableIds: string[];
@@ -2185,10 +2187,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 }> = [];
 
                 for (const sourceColumn of sourceColumns) {
-                    const existingFkColumn = nextTargetColumns.find(
-                        (c) =>
-                            c.isForeignKey &&
-                            c.referencesPrimaryColumnId === sourceColumn.id,
+                    const existingFkColumn = findReusableFkColumn(
+                        nextTargetColumns,
+                        latestDoc.model.relationships,
+                        sourceTableId,
+                        targetTableId,
+                        sourceColumn.id,
                     );
 
                     let targetColumnId: string;
@@ -2201,11 +2205,23 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         const samePhysIdx = nextTargetColumns.findIndex(
                             (c) => c.physicalName.trim() === physKey,
                         );
-                        if (samePhysIdx >= 0) {
-                            const prev = nextTargetColumns[samePhysIdx]!;
+                        const samePhysCol =
+                            samePhysIdx >= 0
+                                ? nextTargetColumns[samePhysIdx]!
+                                : undefined;
+                        const samePhysAlreadyBound =
+                            samePhysCol !== undefined &&
+                            isPkFkPairAlreadyRelated(
+                                latestDoc.model.relationships,
+                                sourceTableId,
+                                targetTableId,
+                                sourceColumn.id,
+                                samePhysCol.id,
+                            );
+                        if (samePhysCol && !samePhysAlreadyBound) {
                             nextTargetColumns = [...nextTargetColumns];
                             nextTargetColumns[samePhysIdx] = {
-                                ...prev,
+                                ...samePhysCol,
                                 logicalName: nm.logicalName,
                                 physicalName: nm.physicalName,
                                 logicalType: sourceColumn.logicalType,
@@ -2213,9 +2229,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                                 isForeignKey: true,
                                 referencesPrimaryColumnId: sourceColumn.id,
                             };
-                            targetColumnId = prev.id;
+                            targetColumnId = samePhysCol.id;
                             autoCreatedTargetColumn = false;
                             targetColumnsTouched = true;
+                        } else if (samePhysAlreadyBound) {
+                            // 이미 이 PK와 묶인 FK와 물리명이 같으면 병합·복제하지 않는다.
+                            // 대화상자에서 다른 이름을 강제하는 것이 정상 경로다.
+                            continue;
                         } else {
                             const fkColumn = createColumn(
                                 latestDoc.model.dialect,
@@ -2240,12 +2260,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         }
                     }
 
-                    const relExists = latestDoc.model.relationships.some(
-                        (r) =>
-                            r.sourceTableId === sourceTableId &&
-                            r.targetTableId === targetTableId &&
-                            r.sourceColumnId === sourceColumn.id &&
-                            r.targetColumnId === targetColumnId,
+                    const relExists = isPkFkPairAlreadyRelated(
+                        latestDoc.model.relationships,
+                        sourceTableId,
+                        targetTableId,
+                        sourceColumn.id,
+                        targetColumnId,
                     );
                     if (!relExists) {
                         relationshipsToAdd.push({
@@ -2300,7 +2320,12 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 logicalName: r.logicalName,
                 physicalName: r.physicalName,
             }));
-            const v = validateFkRenameRows(draftRows);
+            const v = validateFkRenameRows(draftRows, {
+                targetColumns: targetTable.columns,
+                relationships: latestDoc.model.relationships,
+                sourceTableId: fkCollisionDialog.sourceTableId,
+                targetTableId: fkCollisionDialog.targetTableId,
+            });
             if (!v.ok) {
                 setFkCollisionErrorKey(v.messageKey);
                 return;
@@ -2357,6 +2382,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     sourceTable,
                     targetTable,
                     sourceColumns,
+                    latestDoc.model.relationships,
                 );
                 if (fkPlanNeedsRenameDialog(planned, targetTable.columns)) {
                     const conflictRows = planned.filter((p) =>

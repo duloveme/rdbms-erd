@@ -69,6 +69,7 @@ export const I18N_KEYS = [
   "dialog.fkCollision.fkPhysical",
   "dialog.fkCollision.error.empty",
   "dialog.fkCollision.error.dupWithin",
+  "dialog.fkCollision.error.boundFk",
   "dialog.fkCollision.confirm",
   "dialog.confirm.unsaved.title",
   "dialog.confirm.unsaved.newEr",
