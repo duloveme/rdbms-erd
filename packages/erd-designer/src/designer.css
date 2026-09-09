@@ -663,8 +663,22 @@
   border-color: var(--erd-primary-hover);
 }
 
-.erd-btn--ghost:hover {
+.erd-btn--ghost:hover:not(:disabled) {
   background: var(--erd-surface-hover);
+}
+
+.erd-btn--danger {
+  color: var(--erd-danger);
+}
+
+.erd-btn--danger:hover:not(:disabled) {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.06);
+}
+
+.erd-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .erd-column-row {
@@ -765,11 +779,34 @@
 }
 
 .erd-dialog-col-grid--logical {
-  grid-template-columns: minmax(0, 1fr) 132px 26px 26px 68px 22px 22px 22px 240px;
+  grid-template-columns: 22px minmax(0, 1fr) 132px 26px 26px 68px 22px 22px 22px 240px;
 }
 
 .erd-dialog-col-grid--physical {
-  grid-template-columns: minmax(0, 1fr) 124px 86px 26px 26px 68px 22px 22px 22px 240px;
+  grid-template-columns: 22px minmax(0, 1fr) 124px 86px 26px 26px 68px 22px 22px 22px 240px;
+}
+
+/* 컬럼 선택 체크박스(헤더/본문 공통 세로 정렬) */
+.erd-dialog-col-head-check,
+.erd-dialog-column-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.erd-dialog-col-head-check {
+  padding-bottom: 2px;
+}
+
+.erd-dialog-column-check input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.erd-dialog-column-check input:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
 
 /* 테이블 편집: 컬럼 목록 — 행 간 여백 없이 구분선만 */
@@ -789,6 +826,10 @@
 
 .erd-dialog-column-row:first-child {
   border-top: none;
+}
+
+.erd-dialog-column-row--selected {
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .erd-dialog-column-row .erd-dialog-col-grid {

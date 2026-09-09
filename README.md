@@ -73,63 +73,96 @@ npm run build
   designer `package.json`의 `@rdbms-erd/core` 의존 버전만 core의 현재 `version`으로 덮어씁니다. version 스크립트 안에서도 호출됩니다. 따로 맞출 일이 있을 때만 직접 실행하면 됩니다.
 
 - **`release:publish`**  
-  이미 맞춰 둔 버전 그대로 core와 designer를 npm에 public으로 publish합니다. 패키지의 `prepublishOnly`로 빌드가 한 번 더 돌아갈 수 있습니다.
+  이미 맞춰 둔 버전 그대로 core와 designer를 npm에 public으로 publish합니다. 각 패키지의 `prepublishOnly`가 publish 직전에 빌드를 다시 돌립니다. **버전을 올리지 않고 테스트도 돌리지 않으므로**, 이미 배포된 버전 그대로 실행하면 실패합니다. 자세한 순서는 [npm 배포](#npm-배포)를 보세요.
 
 - **`release:patch`** / **`release:minor`** / **`release:major`**  
-  `release:check` → 해당 단계 version bump → core 의존 동기화 → `release:publish`까지 한 번에 실행하는 **실제 npm 배포용** end-to-end 스크립트입니다.
+  `release:check` → 해당 단계 version bump → core 의존 동기화 → `release:publish`까지 한 번에 실행하는 **실제 npm 배포용** end-to-end 스크립트입니다. 평소 배포는 이 스크립트를 쓰세요.
 
 ## npm 배포
 
 배포 대상은 `@rdbms-erd/core`와 `@rdbms-erd/designer`입니다. 플레이그라운드(`apps/playground`)는 npm에 올리지 않습니다.
 
-### 사전 준비
+### 스크립트별 동작 비교
 
-1. [npm](https://www.npmjs.com/)에 로그인할 수 있어야 합니다 (`npm login`). 패키지 스코프 `@rdbms-erd`에 publish 권한이 있어야 합니다.
-2. 작업 트리가 깨끗한지(또는 배포에 포함할 변경만 있는지) 확인합니다.
-3. 배포 전에 한 번 점검합니다.
+어떤 스크립트가 무엇까지 하는지 먼저 확인하세요. **`release:publish`는 버전을 올리지 않습니다.**
+
+| 스크립트 | 테스트 | 버전 올림 | 빌드 | npm publish |
+|---|---|---|---|---|
+| `release:check` | O | X | O | X |
+| `release:preflight:no-version` | O | X | O | X (pack dry-run) |
+| `release:preflight` | O | **O (patch)** | O | X (pack dry-run) |
+| `release:version:*` | X | O | X | X |
+| `release:publish` | X | **X** | O (`prepublishOnly`) | O |
+| `release:patch` / `:minor` / `:major` | O | O | O | O |
+
+### 배포 순서
+
+평소 배포는 아래 4단계를 그대로 따르면 됩니다.
+
+#### 1. 사전 준비
 
 ```bash
-# 버전은 올리지 않고 빌드·테스트·pack만 확인 (권장)
+npm login              # @rdbms-erd 스코프에 publish 권한 필요
+npm whoami             # 로그인 계정 확인
+git status             # 배포에 포함할 변경만 남아 있는지 확인
+```
+
+#### 2. 사전 점검 (버전을 건드리지 않음)
+
+```bash
 npm run release:preflight:no-version
 ```
 
-### 한 번에 배포 (권장)
+빌드 · 테스트 · 플레이그라운드 빌드 · `npm pack --dry-run`까지 통과하는지 봅니다. 여기서 실패하면 배포로 넘어가지 마세요.
 
-변경 성격에 맞는 스크립트 하나만 실행하면 됩니다.
+#### 3. 버전 올림 + 배포
+
+변경 성격에 맞는 스크립트 **하나만** 실행합니다.
 
 ```bash
-# 버그 수정·작은 변경 → 0.1.x patch
-npm run release:patch
-
-# 하위 호환 API/기능 추가 → minor
-npm run release:minor
-
-# 호환이 깨지는 변경 → major
-npm run release:major
+npm run release:patch    # 버그 수정·작은 변경 (0.1.37 → 0.1.38)
+npm run release:minor    # 하위 호환 기능 추가 (0.1.37 → 0.2.0)
+npm run release:major    # 호환이 깨지는 변경 (0.1.37 → 1.0.0)
 ```
 
-각 스크립트가 하는 일:
+내부 실행 순서는 다음과 같습니다.
 
-1. `release:check` — 패키지 빌드 + 테스트  
-2. `release:version:*` — core·designer 버전 올림 + designer의 `@rdbms-erd/core` 의존 버전 맞춤  
-3. `release:publish` — core를 먼저 public publish한 뒤 designer를 publish  
+1. `release:check` — 패키지 빌드 + 테스트
+2. `release:version:*` — core·designer 버전 올림
+3. `release:sync-core-dep` — designer의 `@rdbms-erd/core` 의존 버전을 core 새 버전에 맞춤
+4. `release:publish` — core를 먼저 publish한 뒤 designer를 publish
 
-성공하면 npm에 새 버전이 올라갑니다. 로컬 `packages/*/package.json` 버전과 designer의 core dependency도 바뀌어 있으므로, 그 변경을 git에 커밋하는 것을 권장합니다. (스크립트는 git 태그를 자동으로 만들지 않습니다.)
+#### 4. 마무리 (수동)
+
+버전 스크립트는 `--no-git-tag-version`이라 **커밋도 태그도 만들지 않습니다.** 바뀐 `package.json` 두 개를 직접 커밋하세요.
+
+```bash
+npm view @rdbms-erd/core version        # 배포 결과 확인
+npm view @rdbms-erd/designer version
+
+git add packages/erd-core/package.json packages/erd-designer/package.json
+git commit -m "chore: release v0.1.38"
+git tag v0.1.38
+git push && git push --tags
+```
 
 ### 버전만 올리고 나중에 publish
 
+버전을 올린 뒤 내용을 확인하고 나서 배포하고 싶을 때만 쓰세요.
+
 ```bash
 npm run release:version:patch   # 또는 minor / major
-# 내용 확인 후
+# package.json 확인 후
 npm run release:publish
 ```
 
 ### 주의사항
 
-- **core를 designer보다 먼저** 올립니다. `release:publish` / `release:patch` 등이 이미 그 순서를 지킵니다.
+- **`release:publish`를 단독으로 실행하면 버전이 그대로**입니다. 이미 npm에 올라간 버전이면 `403 (cannot publish over existing version)`으로 실패합니다. 새 코드를 배포할 때는 `release:patch` 계열을 쓰세요.
+- **core를 designer보다 먼저** publish합니다. `release:publish` / `release:patch` 등이 이미 그 순서를 지킵니다.
 - designer는 같은 숫자의 `@rdbms-erd/core`를 dependency로 가집니다. version 스크립트가 `release:sync-core-dep`로 맞춥니다.
-- `release:preflight`는 patch 버전을 **실제로 올린 뒤** 리허설합니다. 숫자만 시험하고 싶지 않으면 `release:preflight:no-version`을 쓰세요.
-- publish 직전에 각 패키지의 `prepublishOnly`로 빌드가 한 번 더 돌 수 있습니다.
+- `release:preflight`는 patch 버전을 **실제로 올린 뒤** 리허설합니다. 숫자를 바꾸고 싶지 않으면 `release:preflight:no-version`을 쓰세요.
+- publish 직전에 각 패키지의 `prepublishOnly`가 `npm run build`를 다시 돌립니다. 그래서 `release:publish`만 실행해도 `dist/`는 최신입니다. 다만 **테스트는 돌지 않습니다.**
 
 ## License
 

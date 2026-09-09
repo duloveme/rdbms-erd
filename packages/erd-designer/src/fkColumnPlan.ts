@@ -92,8 +92,8 @@ export function physicalNameUsedOnTarget(
 }
 
 /**
- * 물리명이 타깃에 있고, 그 컬럼이 이미 이 부모 PK와 릴레이션으로 묶여 있으면
- * 병합하면 no-op가 되므로 다른 이름을 써야 한다.
+ * 물리명이 타깃에 있고, 그 컬럼이 이미 이 부모 PK와 릴레이션으로 묶여 있으면 true.
+ * (확정 시 미변경이면 제외·기존 FK 유지)
  */
 export function physicalNameCollidesWithBoundFk(
     targetColumns: readonly ColumnModel[],
@@ -116,7 +116,7 @@ export function physicalNameCollidesWithBoundFk(
     );
 }
 
-/** 새로 만들 FK에 대해, 타깃에 이미 같은 물리명이 있으면 true(재사용 FK 제외). */
+/** 새로 만들 FK에 대해, 타깃에 이미 같은 물리명이 있으면 true(재사용 FK만 제외). */
 export function fkPlanNeedsRenameDialog(
     planned: FkPlanRow[],
     targetColumns: ColumnModel[],
@@ -135,6 +135,41 @@ export function fkPlanNeedsRenameDialog(
     return false;
 }
 
+/** 대화상자에 넣을 행: 제안 물리명이 타깃에 이미 있는 planned 행(재사용 FK 제외). */
+export function filterFkPlanRowsForRenameDialog(
+    planned: FkPlanRow[],
+    targetColumns: readonly ColumnModel[],
+): FkPlanRow[] {
+    return planned.filter((p) =>
+        physicalNameUsedOnTarget(
+            targetColumns as ColumnModel[],
+            p.proposedPhysical,
+            p.reuseExisting?.id,
+        ),
+    );
+}
+
+/** 확정 시 apply에 넘길 행: 이미 묵인 FK와 동명이면 제외(기존 FK 유지). */
+export function filterOutBoundFkRenameRows(
+    draftRows: readonly FkRenameDraftRow[],
+    targetColumns: readonly ColumnModel[],
+    relationships: readonly RelationshipModel[],
+    sourceTableId: string,
+    targetTableId: string,
+): FkRenameDraftRow[] {
+    return draftRows.filter(
+        (row) =>
+            !physicalNameCollidesWithBoundFk(
+                targetColumns,
+                relationships,
+                sourceTableId,
+                targetTableId,
+                row.sourceColumnId,
+                row.physicalName,
+            ),
+    );
+}
+
 export type FkRenameDraftRow = {
     sourceColumnId: string;
     logicalName: string;
@@ -143,13 +178,7 @@ export type FkRenameDraftRow = {
 
 export function validateFkRenameRows(
     draftRows: FkRenameDraftRow[],
-    options?: {
-        targetColumns?: readonly ColumnModel[];
-        relationships?: readonly RelationshipModel[];
-        sourceTableId?: string;
-        targetTableId?: string;
-    },
-): { ok: true } | { ok: false; messageKey: "empty" | "dupWithin" | "boundFk" } {
+): { ok: true } | { ok: false; messageKey: "empty" | "dupWithin" } {
     const physSet = new Set<string>();
     for (const row of draftRows) {
         const lp = row.logicalName.trim();
@@ -157,22 +186,6 @@ export function validateFkRenameRows(
         if (!lp || !pp) return { ok: false, messageKey: "empty" };
         if (physSet.has(pp)) return { ok: false, messageKey: "dupWithin" };
         physSet.add(pp);
-        if (
-            options?.targetColumns &&
-            options.relationships &&
-            options.sourceTableId &&
-            options.targetTableId &&
-            physicalNameCollidesWithBoundFk(
-                options.targetColumns,
-                options.relationships,
-                options.sourceTableId,
-                options.targetTableId,
-                row.sourceColumnId,
-                pp,
-            )
-        ) {
-            return { ok: false, messageKey: "boundFk" };
-        }
     }
     return { ok: true };
 }
@@ -194,7 +207,7 @@ export function fkPhysicalInputShowsConflict(
 
 /**
  * 대화상자에서 물리명을 그대로 두면 FK로 바뀔 타깃 컬럼 중 PK인 것들.
- * (이미 이 PK↔FK 쌍으로 묶인 컬럼은 validate의 boundFk에서 막히므로 여기선 제외)
+ * 이미 이 PK↔FK 쌍으로 묶인 컬럼은 제외한다.
  */
 export function findTargetPkColumnsForPhysicalMerge(
     targetColumns: readonly ColumnModel[],

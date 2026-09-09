@@ -177,6 +177,7 @@ function ensureTrailingBlankColumn(
 type TableEditPendingConfirm =
     | { kind: "close" }
     | { kind: "deleteColumn"; index: number }
+    | { kind: "deleteSelectedColumns"; count: number }
     | { kind: "glossaryNeedsBothNames" }
     | { kind: "glossaryAdded" }
     | { kind: "glossaryUpdated" };
@@ -220,6 +221,11 @@ export function TableEditDialog({
     const [draggingColumnIndex, setDraggingColumnIndex] = useState<
         number | null
     >(null);
+    const [selectedColumnIds, setSelectedColumnIds] = useState<Set<string>>(
+        () => new Set(),
+    );
+    /** Shift+클릭 구간 선택의 기준 행 */
+    const columnSelectionAnchorRef = useRef<string | null>(null);
     const [pendingConfirm, setPendingConfirm] =
         useState<TableEditPendingConfirm | null>(null);
     const columnFieldRegistryRef = useRef(new Map<string, HTMLElement>());
@@ -275,6 +281,8 @@ export function TableEditDialog({
             );
             setDraft(next);
             setUserEdited(false);
+            setSelectedColumnIds(new Set());
+            columnSelectionAnchorRef.current = null;
         }
     }, [displayMode, dialect, open, resolvedCoreOptions, table]);
 
@@ -406,6 +414,15 @@ export function TableEditDialog({
             setUserEdited(true);
             setDraft((d) => {
                 if (!d || d.columns.length <= 1) return d;
+                const removed = d.columns[index];
+                if (removed) {
+                    setSelectedColumnIds((prev) => {
+                        if (!prev.has(removed.id)) return prev;
+                        const next = new Set(prev);
+                        next.delete(removed.id);
+                        return next;
+                    });
+                }
                 return ensureTrailingBlankColumn(
                     { ...d, columns: d.columns.filter((_, i) => i !== index) },
                     dialect,
@@ -416,11 +433,35 @@ export function TableEditDialog({
         [dialect, resolvedCoreOptions],
     );
 
+    const removeSelectedColumns = useCallback(() => {
+        setUserEdited(true);
+        setDraft((d) => {
+            if (!d) return d;
+            const remaining = d.columns.filter(
+                (c) => !selectedColumnIds.has(c.id),
+            );
+            if (remaining.length === d.columns.length) return d;
+            return ensureTrailingBlankColumn(
+                { ...d, columns: remaining },
+                dialect,
+                resolvedCoreOptions,
+            );
+        });
+        setSelectedColumnIds(new Set());
+        columnSelectionAnchorRef.current = null;
+    }, [dialect, resolvedCoreOptions, selectedColumnIds]);
+
     const confirmDeleteColumn = useCallback(() => {
         if (pendingConfirm?.kind !== "deleteColumn") return;
         removeColumn(pendingConfirm.index);
         setPendingConfirm(null);
     }, [pendingConfirm, removeColumn]);
+
+    const confirmDeleteSelectedColumns = useCallback(() => {
+        if (pendingConfirm?.kind !== "deleteSelectedColumns") return;
+        removeSelectedColumns();
+        setPendingConfirm(null);
+    }, [pendingConfirm, removeSelectedColumns]);
 
     useEffect(() => {
         if (!open) return;
@@ -449,6 +490,16 @@ export function TableEditDialog({
                 confirmDeleteColumn();
                 return;
             }
+            if (
+                e.key === "Enter" &&
+                pendingConfirm?.kind === "deleteSelectedColumns" &&
+                !e.isComposing
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                confirmDeleteSelectedColumns();
+                return;
+            }
             if (e.key !== "Escape") return;
             e.preventDefault();
             if (pendingConfirm) {
@@ -461,6 +512,7 @@ export function TableEditDialog({
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [
         confirmDeleteColumn,
+        confirmDeleteSelectedColumns,
         open,
         pendingConfirm,
         requestClose,
@@ -559,6 +611,51 @@ export function TableEditDialog({
         setPendingConfirm({ kind: "deleteColumn", index });
     };
 
+    /** 이름이 하나라도 있는 행만 선택 대상(마지막 입력용 빈 행 제외). */
+    const selectableColumns = draft.columns.filter(
+        (c) => !columnNamesBlank(c),
+    );
+    const selectedColumnCount = selectableColumns.filter((c) =>
+        selectedColumnIds.has(c.id),
+    ).length;
+    const allColumnsSelected =
+        selectableColumns.length > 0 &&
+        selectedColumnCount === selectableColumns.length;
+
+    const toggleAllColumns = () => {
+        columnSelectionAnchorRef.current = null;
+        setSelectedColumnIds(
+            allColumnsSelected
+                ? new Set()
+                : new Set(selectableColumns.map((c) => c.id)),
+        );
+    };
+
+    const toggleColumnSelection = (index: number, extendRange: boolean) => {
+        const col = draft.columns[index];
+        if (!col || columnNamesBlank(col)) return;
+        const anchorId = columnSelectionAnchorRef.current;
+        const anchorIndex = anchorId
+            ? draft.columns.findIndex((c) => c.id === anchorId)
+            : -1;
+        setSelectedColumnIds((prev) => {
+            const next = new Set(prev);
+            if (extendRange && anchorIndex >= 0) {
+                const from = Math.min(anchorIndex, index);
+                const to = Math.max(anchorIndex, index);
+                for (let i = from; i <= to; i++) {
+                    const c = draft.columns[i];
+                    if (c && !columnNamesBlank(c)) next.add(c.id);
+                }
+                return next;
+            }
+            if (next.has(col.id)) next.delete(col.id);
+            else next.add(col.id);
+            return next;
+        });
+        columnSelectionAnchorRef.current = col.id;
+    };
+
     const handleAddColumnToGlossary = (index: number) => {
         if (!onUpsertGlossaryEntry || !draft) return;
         const col = draft.columns[index];
@@ -652,6 +749,56 @@ export function TableEditDialog({
                             }}
                         >
                             {t("dialog.confirm.tableEdit.discard")}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--ghost"
+                            onClick={() => setPendingConfirm(null)}
+                        >
+                            {t("dialog.cancel")}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        ) : pendingConfirm?.kind === "deleteSelectedColumns" ? (
+            <div
+                className="erd-dialog-backdrop erd-dialog-backdrop--nested"
+                role="presentation"
+            >
+                <div
+                    className="erd-dialog"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="erd-table-edit-delete-cols-title"
+                    style={{ width: "min(520px, 100%)", height: "auto" }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                >
+                    <div className="erd-dialog-header">
+                        <span id="erd-table-edit-delete-cols-title">
+                            {t("dialog.confirm.columnDeleteSelected.title")}
+                        </span>
+                    </div>
+                    <div className="erd-dialog-body">
+                        <p
+                            style={{
+                                margin: 0,
+                                fontSize: 14,
+                                lineHeight: 1.45,
+                            }}
+                        >
+                            {t("dialog.confirm.columnDeleteSelected", {
+                                count: pendingConfirm.count,
+                            })}
+                        </p>
+                    </div>
+                    <div className="erd-dialog-footer">
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--primary"
+                            autoFocus
+                            onClick={confirmDeleteSelectedColumns}
+                        >
+                            {t("dialog.confirm.columnDelete.confirm")}
                         </button>
                         <button
                             type="button"
@@ -948,6 +1095,23 @@ export function TableEditDialog({
                     <div
                         className={`${gridClass} erd-dialog-col-grid--header erd-dialog-col-grid--header--tight`}
                     >
+                        <span className="erd-dialog-col-head-check">
+                            <input
+                                type="checkbox"
+                                ref={(el) => {
+                                    if (el) {
+                                        el.indeterminate =
+                                            selectedColumnCount > 0 &&
+                                            !allColumnsSelected;
+                                    }
+                                }}
+                                checked={allColumnsSelected}
+                                disabled={selectableColumns.length === 0}
+                                onChange={toggleAllColumns}
+                                title={t("dialog.column.selectAll")}
+                                aria-label={t("dialog.column.selectAll")}
+                            />
+                        </span>
                         <div className="erd-dialog-col-head-name">
                             <span
                                 className="erd-dialog-col-head-icon-slot"
@@ -1013,10 +1177,13 @@ export function TableEditDialog({
                             const downBlockedByTrailingBlank =
                                 nextColumn != null &&
                                 columnNamesBlank(nextColumn);
+                            const selectable = !columnNamesBlank(col);
+                            const rowSelected =
+                                selectable && selectedColumnIds.has(col.id);
                             return (
                             <div
                                 key={col.id}
-                                className="erd-dialog-column-row"
+                                className={`erd-dialog-column-row${rowSelected ? " erd-dialog-column-row--selected" : ""}`}
                                 onDragOver={(e) => {
                                     if (draggingColumnIndex == null) return;
                                     e.preventDefault();
@@ -1030,6 +1197,25 @@ export function TableEditDialog({
                                 }}
                             >
                                 <div className={gridClass}>
+                                    <span className="erd-dialog-column-check">
+                                        <input
+                                            type="checkbox"
+                                            checked={rowSelected}
+                                            disabled={!selectable}
+                                            onChange={(e) =>
+                                                toggleColumnSelection(
+                                                    index,
+                                                    (
+                                                        e.nativeEvent as Partial<MouseEvent>
+                                                    ).shiftKey === true,
+                                                )
+                                            }
+                                            title={t("dialog.column.select")}
+                                            aria-label={t(
+                                                "dialog.column.select",
+                                            )}
+                                        />
+                                    </span>
                                     <div className="erd-dialog-column-name-cell">
                                         <span
                                             className="erd-dialog-column-key-icon"
@@ -1401,16 +1587,39 @@ export function TableEditDialog({
                             alignItems: "center",
                         }}
                     >
-                        {showDefaultColumnsButton ? (
+                        <div
+                            style={{
+                                display: "flex",
+                                gap: 8,
+                                marginRight: "auto",
+                            }}
+                        >
+                            {showDefaultColumnsButton ? (
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--ghost"
+                                    onClick={handleCreateDefaultColumns}
+                                >
+                                    {t("dialog.tableEdit.createDefaultColumns")}
+                                </button>
+                            ) : null}
                             <button
                                 type="button"
-                                className="erd-btn erd-btn--ghost"
-                                style={{ marginRight: "auto" }}
-                                onClick={handleCreateDefaultColumns}
+                                className="erd-btn erd-btn--ghost erd-btn--danger"
+                                disabled={selectedColumnCount === 0}
+                                onClick={() =>
+                                    setPendingConfirm({
+                                        kind: "deleteSelectedColumns",
+                                        count: selectedColumnCount,
+                                    })
+                                }
                             >
-                                {t("dialog.tableEdit.createDefaultColumns")}
+                                <Trash2 size={14} />
+                                {t("dialog.column.deleteSelected", {
+                                    count: selectedColumnCount,
+                                })}
                             </button>
-                        ) : null}
+                        </div>
                         <button
                             type="button"
                             className="erd-btn erd-btn--ghost"

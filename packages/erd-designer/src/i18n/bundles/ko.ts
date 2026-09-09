@@ -19,6 +19,9 @@ export const koBundle: Record<I18nKey, string> = {
   "toolbar.copyTables": "선택 테이블 복사",
   "toolbar.pasteTables": "테이블 붙여넣기",
   "toolbar.exportExcel": "Excel보내기",
+  "toolbar.exportJson": "JSON 내보내기",
+  "toolbar.importJson": "JSON 불러오기",
+  "toolbar.importJsonFailed": "JSON을 불러오지 못했습니다.\n{{message}}",
   "toolbar.exportPdf": "PDF 저장",
   "toolbar.copyImage": "이미지 클립보드 복사",
   "toolbar.layoutLock.on": "레이아웃 잠금",
@@ -73,8 +76,6 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.error.empty": "논리명과 물리명은 비울 수 없습니다.",
   "dialog.fkCollision.error.dupWithin":
     "새 FK 컬럼끼리 물리명이 겹칩니다.",
-  "dialog.fkCollision.error.boundFk":
-    "이미 이 부모 키와 연결된 FK의 물리명입니다. 추가 릴레이션을 만들려면 다른 이름을 입력하세요.",
   "dialog.fkCollision.confirm": "릴레이션 생성",
   "dialog.fkCollision.pkMerge.title": "기본 키 컬럼에 FK 연결",
   "dialog.fkCollision.pkMerge.message":
@@ -82,6 +83,7 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.pkMerge.confirm": "계속 생성",
   "dialog.confirm.unsaved.title": "저장되지 않은 변경사항이 있습니다.",
   "dialog.confirm.unsaved.newEr": "현재 ER가 수정 중입니다. 계속해서 새 ER를 생성할까요?",
+  "dialog.confirm.unsaved.loadJson": "현재 ER가 수정 중입니다. 계속해서 JSON을 불러올까요?",
   "dialog.confirm.tableEdit.closeTitle": "테이블 편집 닫기",
   "dialog.confirm.tableEdit.close":
     "저장하지 않은 변경사항이 있습니다. 저장하지 않고 닫을까요?",
@@ -89,6 +91,8 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.confirm.columnDelete.title": "컬럼 삭제",
   "dialog.confirm.columnDelete": "이 컬럼을 삭제할까요?",
   "dialog.confirm.columnDelete.confirm": "삭제",
+  "dialog.confirm.columnDeleteSelected.title": "선택 컬럼 삭제",
+  "dialog.confirm.columnDeleteSelected": "선택한 {{count}}개 컬럼을 삭제할까요?",
   "dialog.confirm.dialectChange": "DB 종류를 변경하면 컬럼 타입이 바뀔 수 있습니다. 호환 타입으로 변환하고 계속할까요?",
   "dialog.relationshipDelete.title": "릴레이션 삭제",
   "dialog.relationshipDelete.message":
@@ -130,6 +134,9 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.column.delete": "삭제",
   "dialog.column.color": "컬럼 배경색",
   "dialog.column.color.clear": "컬럼 배경색 제거",
+  "dialog.column.select": "컬럼 선택",
+  "dialog.column.selectAll": "컬럼 전체 선택",
+  "dialog.column.deleteSelected": "{{count}}개 삭제",
   "dialog.cancel": "취소",
   "dialog.save": "저장",
   "dialog.close": "닫기",
@@ -147,6 +154,15 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.glossary.applySelected": "일괄적용",
   "dialog.glossary.selectAll": "전체 선택",
   "dialog.glossary.empty": "등록된 항목이 없습니다.",
+  "dialog.glossary.exportJson": "Glossary JSON 내보내기",
+  "dialog.glossary.importJson": "Glossary JSON 불러오기",
+  "dialog.glossary.importTitle": "Glossary 불러오기",
+  "dialog.glossary.importPrompt":
+    "불러온 항목 {{count}}개를 어떻게 적용할까요?\n바꾸기: 현재 목록을 파일 내용으로 교체\n병합: 같은 항목은 갱신하고 없으면 추가",
+  "dialog.glossary.importReplace": "바꾸기",
+  "dialog.glossary.importMerge": "병합",
+  "dialog.glossary.importFailedTitle": "불러오기 실패",
+  "dialog.glossary.importFailed": "Glossary JSON을 불러오지 못했습니다.\n{{message}}",
   "designer.defaultTableLogicalName": "테이블{{n}}",
   "designer.defaultColumnName": "컬럼1"
 };

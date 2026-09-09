@@ -53,6 +53,8 @@ export {
     findGlossaryMatch,
     lookupLogicalName,
     lookupPhysicalName,
+    mergeGlossaryEntries,
+    parseGlossaryJson,
     removeGlossaryEntries,
     upsertGlossaryEntry,
 } from "./glossary";

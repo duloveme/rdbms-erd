@@ -6,6 +6,8 @@ import {
     findGlossaryMatch,
     lookupLogicalName,
     lookupPhysicalName,
+    mergeGlossaryEntries,
+    parseGlossaryJson,
     removeGlossaryEntries,
     upsertGlossaryEntry,
 } from "./glossary";
@@ -174,5 +176,60 @@ describe("glossary helpers", () => {
             "physical",
         );
         expect(byPhysical[0]?.columns[0]?.logicalName).toBe("창고ID");
+    });
+});
+
+describe("glossary JSON import", () => {
+    it("parses a bare array and a wrapped object the same way", () => {
+        const rows = [{ id: "g9", logicalName: "창고ID", physicalName: "wh" }];
+        expect(parseGlossaryJson(JSON.stringify(rows))).toEqual(rows);
+        expect(parseGlossaryJson(JSON.stringify({ glossary: rows }))).toEqual(
+            rows,
+        );
+    });
+
+    it("skips incomplete rows and generates missing ids", () => {
+        const parsed = parseGlossaryJson(
+            JSON.stringify([
+                { logicalName: "  창고ID  ", physicalName: " wh " },
+                { logicalName: "", physicalName: "wh" },
+                { logicalName: "only-logical" },
+                "not-an-object",
+            ]),
+        );
+        expect(parsed).toHaveLength(1);
+        expect(parsed[0]?.logicalName).toBe("창고ID");
+        expect(parsed[0]?.physicalName).toBe("wh");
+        expect(parsed[0]?.id).toBeTruthy();
+    });
+
+    it("throws when the payload is not an entry list", () => {
+        expect(() => parseGlossaryJson(JSON.stringify({ a: 1 }))).toThrow();
+    });
+
+    it("merges by upserting on the match key", () => {
+        const merged = mergeGlossaryEntries(
+            SAMPLE,
+            [
+                { id: "i1", logicalName: "창고ID", physicalName: "wh_id" },
+                { id: "i2", logicalName: "신규", physicalName: "new_col" },
+            ],
+            "logical",
+        );
+        expect(merged).toHaveLength(3);
+        expect(merged[0]?.physicalName).toBe("wh_id");
+        expect(merged[0]?.id).toBe("g1");
+        expect(merged[2]?.logicalName).toBe("신규");
+    });
+
+    it("gives an appended entry a fresh id when the imported id collides", () => {
+        const merged = mergeGlossaryEntries(
+            SAMPLE,
+            [{ id: "g1", logicalName: "신규", physicalName: "new_col" }],
+            "logical",
+        );
+        expect(merged).toHaveLength(3);
+        expect(merged[2]?.id).not.toBe("g1");
+        expect(new Set(merged.map((e) => e.id)).size).toBe(3);
     });
 });

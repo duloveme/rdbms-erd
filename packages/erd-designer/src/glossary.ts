@@ -87,6 +87,61 @@ export function upsertGlossaryEntry(
     ];
 }
 
+/**
+ * Parse a glossary JSON file: either a bare entry array or `{ "glossary": [...] }`.
+ * Entries missing a name are skipped; missing ids get a generated one.
+ */
+export function parseGlossaryJson(json: string): GlossaryEntry[] {
+    const parsed: unknown = JSON.parse(json);
+    const list = Array.isArray(parsed)
+        ? parsed
+        : typeof parsed === "object" &&
+            parsed !== null &&
+            Array.isArray((parsed as { glossary?: unknown }).glossary)
+          ? ((parsed as { glossary: unknown[] }).glossary as unknown[])
+          : null;
+    if (!list) {
+        throw new Error("Invalid glossary JSON: expected an array");
+    }
+
+    const out: GlossaryEntry[] = [];
+    for (const item of list) {
+        if (typeof item !== "object" || item === null) continue;
+        const row = item as Record<string, unknown>;
+        const logicalName =
+            typeof row.logicalName === "string" ? row.logicalName.trim() : "";
+        const physicalName =
+            typeof row.physicalName === "string" ? row.physicalName.trim() : "";
+        if (!logicalName || !physicalName) continue;
+        const id = typeof row.id === "string" ? row.id.trim() : "";
+        out.push({
+            id: id || createId("gloss"),
+            logicalName,
+            physicalName,
+        });
+    }
+    return out;
+}
+
+/** Merge imported entries into the current list via upsert on the match key. */
+export function mergeGlossaryEntries(
+    glossary: readonly GlossaryEntry[],
+    incoming: readonly GlossaryEntry[],
+    matchKey: GlossaryMatchKey,
+): GlossaryEntry[] {
+    let next = [...glossary];
+    for (const entry of incoming) {
+        // 매치되지 않아 새로 추가될 때 기존 id와 겹치면 새 id를 받게 한다.
+        const idTaken = next.some((e) => e.id === entry.id);
+        next = upsertGlossaryEntry(
+            next,
+            idTaken ? { ...entry, id: undefined } : entry,
+            matchKey,
+        );
+    }
+    return next;
+}
+
 export function removeGlossaryEntries(
     glossary: readonly GlossaryEntry[],
     ids: readonly string[],

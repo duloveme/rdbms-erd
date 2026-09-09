@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+    filterFkPlanRowsForRenameDialog,
+    filterOutBoundFkRenameRows,
     findReusableFkColumn,
     findTargetPkColumnsForPhysicalMerge,
     fkPhysicalInputShowsConflict,
@@ -48,7 +50,7 @@ describe("fkColumnPlan", () => {
         expect(fkPlanNeedsRenameDialog(planned, target.columns)).toBe(true);
     });
 
-    it("does not reuse FK that is already related; rename dialog needed", () => {
+    it("shows rename dialog for already-bound FK same name; confirm filters it out", () => {
         const source = {
             id: "s",
             logicalName: "S",
@@ -96,6 +98,9 @@ describe("fkColumnPlan", () => {
         expect(planned[0]?.reuseExisting).toBeNull();
         expect(fkPlanNeedsRenameDialog(planned, target.columns)).toBe(true);
         expect(
+            filterFkPlanRowsForRenameDialog(planned, target.columns),
+        ).toHaveLength(1);
+        expect(
             physicalNameCollidesWithBoundFk(
                 target.columns,
                 relationships,
@@ -105,39 +110,93 @@ describe("fkColumnPlan", () => {
                 "id",
             ),
         ).toBe(true);
-        const v = validateFkRenameRows(
-            [
-                {
-                    sourceColumnId: "pk1",
-                    logicalName: "created_by",
-                    physicalName: "created_by",
-                },
-            ],
-            {
-                targetColumns: target.columns,
+        expect(
+            filterOutBoundFkRenameRows(
+                [
+                    {
+                        sourceColumnId: "pk1",
+                        logicalName: "id",
+                        physicalName: "id",
+                    },
+                ],
+                target.columns,
                 relationships,
+                "s",
+                "t",
+            ),
+        ).toEqual([]);
+        expect(
+            filterOutBoundFkRenameRows(
+                [
+                    {
+                        sourceColumnId: "pk1",
+                        logicalName: "created_by",
+                        physicalName: "created_by",
+                    },
+                ],
+                target.columns,
+                relationships,
+                "s",
+                "t",
+            ),
+        ).toHaveLength(1);
+    });
+
+    it("still needs rename dialog when unbound column shares physical name", () => {
+        const source2 = {
+            id: "s",
+            logicalName: "S",
+            physicalName: "TS",
+            columns: [
+                createColumn("postgres", {
+                    id: "pk2",
+                    logicalName: "code",
+                    physicalName: "code",
+                    logicalType: "TEXT",
+                    nullable: false,
+                    isPrimaryKey: true,
+                }),
+            ],
+        };
+        const fkCol = createColumn("postgres", {
+            id: "fk1",
+            logicalName: "id",
+            logicalType: "NUMBER",
+            physicalName: "id",
+            isForeignKey: true,
+            referencesPrimaryColumnId: "pk1",
+        });
+        const other = createColumn("postgres", {
+            id: "other",
+            logicalName: "code",
+            logicalType: "TEXT",
+            physicalName: "code",
+        });
+        const target = {
+            id: "t",
+            logicalName: "T",
+            physicalName: "TT",
+            columns: [fkCol, other],
+        };
+        const relationships: RelationshipModel[] = [
+            {
+                id: "r1",
                 sourceTableId: "s",
                 targetTableId: "t",
+                sourceColumnId: "pk1",
+                targetColumnId: "fk1",
             },
+        ];
+        const planned = planForeignKeyColumns(
+            source2,
+            target,
+            source2.columns.filter((c) => c.isPrimaryKey),
+            relationships,
         );
-        expect(v.ok).toBe(true);
-        const vBound = validateFkRenameRows(
-            [
-                {
-                    sourceColumnId: "pk1",
-                    logicalName: "id",
-                    physicalName: "id",
-                },
-            ],
-            {
-                targetColumns: target.columns,
-                relationships,
-                sourceTableId: "s",
-                targetTableId: "t",
-            },
-        );
-        expect(vBound.ok).toBe(false);
-        if (!vBound.ok) expect(vBound.messageKey).toBe("boundFk");
+        expect(fkPlanNeedsRenameDialog(planned, target.columns)).toBe(true);
+        expect(
+            filterFkPlanRowsForRenameDialog(planned, target.columns),
+        ).toHaveLength(1);
     });
 
     it("reuses orphan FK column (no relationship yet)", () => {

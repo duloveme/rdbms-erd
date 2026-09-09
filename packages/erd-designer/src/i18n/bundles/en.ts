@@ -19,6 +19,9 @@ export const enBundle: Record<I18nKey, string> = {
   "toolbar.copyTables": "Copy selected tables",
   "toolbar.pasteTables": "Paste tables",
   "toolbar.exportExcel": "Export Excel",
+  "toolbar.exportJson": "Export JSON",
+  "toolbar.importJson": "Import JSON",
+  "toolbar.importJsonFailed": "Failed to load JSON.\n{{message}}",
   "toolbar.exportPdf": "Save as PDF",
   "toolbar.copyImage": "Copy image to clipboard",
   "toolbar.layoutLock.on": "Lock layout editing",
@@ -73,8 +76,6 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.error.empty": "Logical and physical names must be non-empty.",
   "dialog.fkCollision.error.dupWithin":
     "Duplicate physical names between the new FK columns.",
-  "dialog.fkCollision.error.boundFk":
-    "That physical name is already used by an FK bound to this parent key. Choose a different name to add another relationship.",
   "dialog.fkCollision.confirm": "Create relationship",
   "dialog.fkCollision.pkMerge.title": "Link FK to a primary key column",
   "dialog.fkCollision.pkMerge.message":
@@ -82,6 +83,7 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.fkCollision.pkMerge.confirm": "Continue",
   "dialog.confirm.unsaved.title": "You have unsaved changes.",
   "dialog.confirm.unsaved.newEr": "Current ER has unsaved changes. Continue and create a new ER?",
+  "dialog.confirm.unsaved.loadJson": "Current ER has unsaved changes. Continue and load a JSON file?",
   "dialog.confirm.tableEdit.closeTitle": "Close table editor",
   "dialog.confirm.tableEdit.close":
     "You have unsaved changes. Close without saving?",
@@ -89,6 +91,8 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.confirm.columnDelete.title": "Delete column",
   "dialog.confirm.columnDelete": "Delete this column?",
   "dialog.confirm.columnDelete.confirm": "Delete",
+  "dialog.confirm.columnDeleteSelected.title": "Delete selected columns",
+  "dialog.confirm.columnDeleteSelected": "Delete {{count}} selected column(s)?",
   "dialog.confirm.dialectChange": "Changing the DB type may alter column types. Continue and convert to compatible types?",
   "dialog.relationshipDelete.title": "Delete relationship",
   "dialog.tableDelete.title": "Delete table",
@@ -130,6 +134,9 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.column.delete": "Delete",
   "dialog.column.color": "Column background color",
   "dialog.column.color.clear": "Clear column background",
+  "dialog.column.select": "Select column",
+  "dialog.column.selectAll": "Select all columns",
+  "dialog.column.deleteSelected": "Delete {{count}}",
   "dialog.cancel": "Cancel",
   "dialog.save": "Save",
   "dialog.close": "Close",
@@ -147,6 +154,15 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.glossary.applySelected": "Apply selected",
   "dialog.glossary.selectAll": "Select all",
   "dialog.glossary.empty": "No glossary entries.",
+  "dialog.glossary.exportJson": "Export glossary JSON",
+  "dialog.glossary.importJson": "Import glossary JSON",
+  "dialog.glossary.importTitle": "Import glossary",
+  "dialog.glossary.importPrompt":
+    "How should the {{count}} imported entries be applied?\nReplace: overwrite the current list with the file\nMerge: update matching entries and append the rest",
+  "dialog.glossary.importReplace": "Replace",
+  "dialog.glossary.importMerge": "Merge",
+  "dialog.glossary.importFailedTitle": "Import failed",
+  "dialog.glossary.importFailed": "Failed to load glossary JSON.\n{{message}}",
   "designer.defaultTableLogicalName": "Table{{n}}",
   "designer.defaultColumnName": "Column1"
 };

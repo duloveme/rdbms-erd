@@ -2,9 +2,11 @@
 
 import type { GlossaryEntry } from "@rdbms-erd/core";
 import { createId } from "@rdbms-erd/core";
-import { Plus, Trash2, X } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import { FileJson, FolderOpen, Plus, Trash2, X } from "lucide-react";
+import React, { useMemo, useRef, useState } from "react";
+import { downloadJsonFile, sanitizeFileBase } from "./fileDownload";
 import type { GlossaryMatchKey } from "./glossary";
+import { mergeGlossaryEntries, parseGlossaryJson } from "./glossary";
 import { useErdTranslator } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
 
@@ -36,6 +38,12 @@ export function GlossaryDialog({
     const [selectedIds, setSelectedIds] = useState<Set<string>>(
         () => new Set(),
     );
+    const importInputRef = useRef<HTMLInputElement | null>(null);
+    const [importPrompt, setImportPrompt] = useState<
+        | { kind: "choose"; entries: GlossaryEntry[] }
+        | { kind: "failed"; message: string }
+        | null
+    >(null);
 
     const allSelected = useMemo(
         () => entries.length > 0 && entries.every((e) => selectedIds.has(e.id)),
@@ -87,6 +95,51 @@ export function GlossaryDialog({
         });
         if (ids.length === 0) return;
         onApplySelected(ids);
+    };
+
+    const exportJson = () => {
+        downloadJsonFile(
+            JSON.stringify(entries, null, 2),
+            sanitizeFileBase(undefined, "glossary"),
+        );
+    };
+
+    const handleImportFile = async (
+        event: React.ChangeEvent<HTMLInputElement>,
+    ) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+        let imported: GlossaryEntry[];
+        try {
+            imported = parseGlossaryJson(await file.text());
+        } catch (err) {
+            setImportPrompt({
+                kind: "failed",
+                message: err instanceof Error ? err.message : String(err),
+            });
+            return;
+        }
+        if (entries.length === 0) {
+            onChange(imported);
+            return;
+        }
+        setImportPrompt({ kind: "choose", entries: imported });
+    };
+
+    const applyImport = (mode: "replace" | "merge") => {
+        if (importPrompt?.kind !== "choose") return;
+        onChange(
+            mode === "replace"
+                ? importPrompt.entries
+                : mergeGlossaryEntries(
+                      entries,
+                      importPrompt.entries,
+                      glossaryMatchKey,
+                  ),
+        );
+        setSelectedIds(new Set());
+        setImportPrompt(null);
     };
 
     const physicalFirst = glossaryMatchKey === "physical";
@@ -300,6 +353,33 @@ export function GlossaryDialog({
                 <div className="erd-dialog-footer">
                     <button
                         type="button"
+                        className="erd-dialog-icon-btn"
+                        title={t("dialog.glossary.exportJson")}
+                        aria-label={t("dialog.glossary.exportJson")}
+                        onClick={exportJson}
+                        disabled={entries.length === 0}
+                    >
+                        <FileJson size={16} />
+                    </button>
+                    <button
+                        type="button"
+                        className="erd-dialog-icon-btn"
+                        style={{ marginRight: "auto" }}
+                        title={t("dialog.glossary.importJson")}
+                        aria-label={t("dialog.glossary.importJson")}
+                        onClick={() => importInputRef.current?.click()}
+                    >
+                        <FolderOpen size={16} />
+                    </button>
+                    <input
+                        ref={importInputRef}
+                        type="file"
+                        accept=".json,application/json"
+                        onChange={(e) => void handleImportFile(e)}
+                        style={{ display: "none" }}
+                    />
+                    <button
+                        type="button"
                         className="erd-btn erd-btn--primary"
                         onClick={onClose}
                     >
@@ -307,6 +387,84 @@ export function GlossaryDialog({
                     </button>
                 </div>
             </div>
+            {importPrompt ? (
+                <div
+                    className="erd-dialog-backdrop erd-dialog-backdrop--nested"
+                    role="presentation"
+                >
+                    <div
+                        className="erd-dialog"
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-labelledby="erd-glossary-import-title"
+                        style={{ width: "min(520px, 100%)", height: "auto" }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <div className="erd-dialog-header">
+                            <span id="erd-glossary-import-title">
+                                {t(
+                                    importPrompt.kind === "choose"
+                                        ? "dialog.glossary.importTitle"
+                                        : "dialog.glossary.importFailedTitle",
+                                )}
+                            </span>
+                        </div>
+                        <div className="erd-dialog-body">
+                            <p
+                                style={{
+                                    margin: 0,
+                                    fontSize: 14,
+                                    whiteSpace: "pre-line",
+                                    lineHeight: 1.45,
+                                }}
+                            >
+                                {importPrompt.kind === "choose"
+                                    ? t("dialog.glossary.importPrompt", {
+                                          count: importPrompt.entries.length,
+                                      })
+                                    : t("dialog.glossary.importFailed", {
+                                          message: importPrompt.message,
+                                      })}
+                            </p>
+                        </div>
+                        <div className="erd-dialog-footer">
+                            {importPrompt.kind === "choose" ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="erd-btn erd-btn--primary"
+                                        onClick={() => applyImport("merge")}
+                                    >
+                                        {t("dialog.glossary.importMerge")}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="erd-btn erd-btn--ghost"
+                                        onClick={() => applyImport("replace")}
+                                    >
+                                        {t("dialog.glossary.importReplace")}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="erd-btn erd-btn--ghost"
+                                        onClick={() => setImportPrompt(null)}
+                                    >
+                                        {t("dialog.cancel")}
+                                    </button>
+                                </>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="erd-btn erd-btn--primary"
+                                    onClick={() => setImportPrompt(null)}
+                                >
+                                    {t("dialog.close")}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -40,6 +40,7 @@ import {
     generateDdl,
     generateDdlForSelection,
     LogicalDataType,
+    parseDesign,
     RdbmsDialect,
     resolveDialectMetas,
     serializeDesign,
@@ -62,9 +63,11 @@ import {
     EyeOff,
     FileDown,
     FileCode,
+    FileJson,
     FilePlus,
     FileSpreadsheet,
     FileImage,
+    FolderOpen,
     KeyRound,
     Link2,
     Lock,
@@ -97,16 +100,18 @@ import React, {
 } from "react";
 import { useStore } from "zustand";
 import { createDesignerStore, type AlignType } from "./createDesignerStore";
+import { downloadJsonFile, sanitizeFileBase } from "./fileDownload";
 import { createId } from "./id";
 import { ErdI18nProvider, useErdI18n } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
 import {
+    filterFkPlanRowsForRenameDialog,
+    filterOutBoundFkRenameRows,
     findReusableFkColumn,
     findTargetPkColumnsForPhysicalMerge,
     fkPhysicalInputShowsConflict,
     fkPlanNeedsRenameDialog,
     isPkFkPairAlreadyRelated,
-    physicalNameUsedOnTarget,
     planForeignKeyColumns,
     validateFkRenameRows,
 } from "./fkColumnPlan";
@@ -1206,7 +1211,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             }>;
         } | null>(null);
         const [fkCollisionErrorKey, setFkCollisionErrorKey] = useState<
-            "empty" | "dupWithin" | "boundFk" | null
+            "empty" | "dupWithin" | null
         >(null);
         const [fkPkMergeConfirm, setFkPkMergeConfirm] = useState<{
             columnLabels: string[];
@@ -1244,6 +1249,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         } | null>(null);
         const pendingAlignAnchorRef = useRef<string | null>(null);
         const canvasRootRef = useRef<HTMLDivElement | null>(null);
+        const designJsonInputRef = useRef<HTMLInputElement | null>(null);
         const edgeContextMenuRef = useRef<HTMLDivElement | null>(null);
 
         useEffect(() => {
@@ -2125,15 +2131,37 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
 
         const finalizeFkCollisionDialog = useCallback(() => {
             if (!fkCollisionDialog) return;
-            const map = new Map(
-                fkCollisionDialog.rows.map((r) => [
-                    r.sourceColumnId,
-                    {
-                        logicalName: r.logicalName.trim(),
-                        physicalName: r.physicalName.trim(),
-                    },
-                ]),
+            const latestDoc = useDesignerStore.getState().doc;
+            const targetTable = latestDoc.model.tables.find(
+                (t) => t.id === fkCollisionDialog.targetTableId,
             );
+            const draftRows = fkCollisionDialog.rows.map((r) => ({
+                sourceColumnId: r.sourceColumnId,
+                logicalName: r.logicalName.trim(),
+                physicalName: r.physicalName.trim(),
+            }));
+            const applyRows = targetTable
+                ? filterOutBoundFkRenameRows(
+                      draftRows,
+                      targetTable.columns,
+                      latestDoc.model.relationships,
+                      fkCollisionDialog.sourceTableId,
+                      fkCollisionDialog.targetTableId,
+                  )
+                : draftRows;
+            // 대화상자 행이 전부 제외되어도 복합 PK 중 미충돌 PK는 batch로 적용해야 한다.
+            const map =
+                applyRows.length === 0
+                    ? null
+                    : new Map(
+                          applyRows.map((r) => [
+                              r.sourceColumnId,
+                              {
+                                  logicalName: r.logicalName,
+                                  physicalName: r.physicalName,
+                              },
+                          ]),
+                      );
             applyForeignKeyBatch(
                 fkCollisionDialog.sourceTableId,
                 fkCollisionDialog.targetTableId,
@@ -2143,7 +2171,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             setFkCollisionDialog(null);
             setFkCollisionErrorKey(null);
             setFkPkMergeConfirm(null);
-        }, [applyForeignKeyBatch, fkCollisionDialog]);
+        }, [applyForeignKeyBatch, fkCollisionDialog, useDesignerStore]);
 
         const confirmFkCollisionDialog = useCallback(() => {
             if (!fkCollisionDialog) return;
@@ -2157,31 +2185,35 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 logicalName: r.logicalName,
                 physicalName: r.physicalName,
             }));
-            const v = validateFkRenameRows(draftRows, {
-                targetColumns: targetTable.columns,
-                relationships: latestDoc.model.relationships,
-                sourceTableId: fkCollisionDialog.sourceTableId,
-                targetTableId: fkCollisionDialog.targetTableId,
-            });
-            if (!v.ok) {
-                setFkCollisionErrorKey(v.messageKey);
-                return;
-            }
-            const pkMergeTargets = findTargetPkColumnsForPhysicalMerge(
+            const applyRows = filterOutBoundFkRenameRows(
+                draftRows,
                 targetTable.columns,
                 latestDoc.model.relationships,
                 fkCollisionDialog.sourceTableId,
                 fkCollisionDialog.targetTableId,
-                draftRows,
             );
-            if (pkMergeTargets.length > 0) {
-                setFkPkMergeConfirm({
-                    columnLabels: pkMergeTargets.map(
-                        (c) =>
-                            `${c.logicalName || c.physicalName} / ${c.physicalName}`,
-                    ),
-                });
-                return;
+            if (applyRows.length > 0) {
+                const v = validateFkRenameRows(applyRows);
+                if (!v.ok) {
+                    setFkCollisionErrorKey(v.messageKey);
+                    return;
+                }
+                const pkMergeTargets = findTargetPkColumnsForPhysicalMerge(
+                    targetTable.columns,
+                    latestDoc.model.relationships,
+                    fkCollisionDialog.sourceTableId,
+                    fkCollisionDialog.targetTableId,
+                    applyRows,
+                );
+                if (pkMergeTargets.length > 0) {
+                    setFkPkMergeConfirm({
+                        columnLabels: pkMergeTargets.map(
+                            (c) =>
+                                `${c.logicalName || c.physicalName} / ${c.physicalName}`,
+                        ),
+                    });
+                    return;
+                }
             }
             finalizeFkCollisionDialog();
         }, [
@@ -2226,13 +2258,13 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     latestDoc.model.relationships,
                 );
                 if (fkPlanNeedsRenameDialog(planned, targetTable.columns)) {
-                    const conflictRows = planned.filter((p) =>
-                        physicalNameUsedOnTarget(
-                            targetTable.columns,
-                            p.proposedPhysical,
-                            p.reuseExisting?.id,
-                        ),
+                    const conflictRows = filterFkPlanRowsForRenameDialog(
+                        planned,
+                        targetTable.columns,
                     );
+                    if (conflictRows.length === 0) {
+                        return;
+                    }
                     setFkCollisionErrorKey(null);
                     setFkPkMergeConfirm(null);
                     setFkCollisionDialog({
@@ -3201,6 +3233,69 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             });
         }, [hasDesign, onExportExcel, selectedNodeIds, useDesignerStore]);
 
+        const exportDesignJson = useCallback(() => {
+            if (!hasDesign) return;
+            const liveDoc = useDesignerStore.getState().doc;
+            downloadJsonFile(
+                serializeDesign(liveDoc),
+                sanitizeFileBase(liveDoc.settings?.projectName, "erd"),
+            );
+        }, [hasDesign, useDesignerStore]);
+
+        const loadDesignFromJsonText = useCallback(
+            (text: string) => {
+                let next: DesignDocument;
+                try {
+                    next = parseDesign(text, coreOptionsRef.current);
+                } catch (err) {
+                    const message =
+                        err instanceof Error ? err.message : String(err);
+                    window.alert(t("toolbar.importJsonFailed", { message }));
+                    return;
+                }
+                const temporal = useDesignerStore.temporal.getState();
+                temporal.pause();
+                setDoc(next);
+                temporal.clear();
+                temporal.resume();
+                setHasDesign(true);
+                setSavedSignature(serializeDesign(next));
+                setSelectedNodeIds([]);
+                setSelectedEdgeIds([]);
+                setEditingTableId(null);
+                setCreatingTableDraft(null);
+                setSelectionDragArmed(false);
+                requestAnimationFrame(() => {
+                    void rfInstanceRef.current?.fitView({
+                        duration: 0,
+                        padding: 0.1,
+                        maxZoom: 0.95,
+                    });
+                });
+            },
+            [setDoc, t, useDesignerStore.temporal],
+        );
+
+        const requestImportDesignJson = useCallback(() => {
+            if (isDirty) {
+                const ok = window.confirm(
+                    `${t("dialog.confirm.unsaved.title")}\n\n${t("dialog.confirm.unsaved.loadJson")}`,
+                );
+                if (!ok) return;
+            }
+            designJsonInputRef.current?.click();
+        }, [isDirty, t]);
+
+        const handleDesignJsonInputChange = useCallback(
+            async (event: React.ChangeEvent<HTMLInputElement>) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                loadDesignFromJsonText(await file.text());
+            },
+            [loadDesignFromJsonText],
+        );
+
         const copyCanvasImageToClipboard = useCallback(async () => {
             if (!hasDesign) return;
             const blob = await exportCanvasBlob();
@@ -3262,6 +3357,32 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                         >
                             <CaseSensitive size={16} />
                         </button>
+                        <button
+                            type="button"
+                            className="erd-toolbar-btn"
+                            title={t("toolbar.exportJson")}
+                            aria-label={t("toolbar.exportJson")}
+                            onClick={exportDesignJson}
+                            disabled={toolbarDisabled}
+                        >
+                            <FileJson size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-toolbar-btn"
+                            title={t("toolbar.importJson")}
+                            aria-label={t("toolbar.importJson")}
+                            onClick={requestImportDesignJson}
+                        >
+                            <FolderOpen size={16} />
+                        </button>
+                        <input
+                            ref={designJsonInputRef}
+                            type="file"
+                            accept=".json,application/json"
+                            onChange={(e) => void handleDesignJsonInputChange(e)}
+                            style={{ display: "none" }}
+                        />
                         <button
                             type="button"
                             className="erd-toolbar-btn"

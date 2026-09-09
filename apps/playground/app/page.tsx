@@ -4,6 +4,7 @@ import {
     createColumn,
     createEmptyDesign,
     DesignDocument,
+    serializeDesign,
 } from "@rdbms-erd/core";
 import {
     ERDDesigner,
@@ -12,6 +13,28 @@ import {
     type GlossaryMatchKey,
 } from "@rdbms-erd/designer";
 import { useCallback, useRef, useState } from "react";
+
+function downloadDesignJson(doc: DesignDocument): void {
+    const rawName = doc.settings?.projectName;
+    const base =
+        typeof rawName === "string" && rawName.trim()
+            ? rawName
+                  .trim()
+                  .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+                  .replace(/\s+/g, "_")
+                  .slice(0, 80) || "erd"
+            : "erd";
+    const stamp = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([serializeDesign(doc)], {
+        type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${base}_${stamp}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+}
 
 const PLAYGROUND_DEFAULT_COLUMNS: readonly DefaultColumnSpec[] = [
     {
@@ -888,10 +911,9 @@ export default function Page() {
         setDesign(doc);
     }, []);
     const handleDesignSave = useCallback((doc: DesignDocument) => {
-        navigator.clipboard.writeText(JSON.stringify(doc, null, 2));
-        alert("copy design to clipboard");
+        // Clipboard truncates around 64KB on Windows; download a full .json file instead.
+        downloadDesignJson(doc);
     }, []);
-
     return (
         <main
             style={{

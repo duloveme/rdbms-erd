@@ -146,7 +146,7 @@ const hostMetas = [
 - `ErdI18nProvider`, `useErdI18n`, `useErdTranslator`, `createTranslator`
 - `I18N_KEYS`, `I18nKey`, `I18nVars`
 - `DefaultColumnSpec`, `appendDefaultColumns`, `preserveDefaultColumnPhysicalTypes`
-- Glossary helpers: `findGlossaryMatch`, `upsertGlossaryEntry`, `removeGlossaryEntries`, `applyGlossaryToTables`, `fillOppositeNamesFromGlossary`, type `GlossaryMatchKey`
+- Glossary helpers: `findGlossaryMatch`, `upsertGlossaryEntry`, `removeGlossaryEntries`, `applyGlossaryToTables`, `fillOppositeNamesFromGlossary`, `parseGlossaryJson`, `mergeGlossaryEntries`, type `GlossaryMatchKey`
 
 ## Notes
 
@@ -154,6 +154,9 @@ const hostMetas = [
 - `designer.css` and React Flow style are imported by package entry.
 - DDL hooks are runtime-only values and are not serialized in design JSON.
 - **Glossary** lives on `DesignDocument.glossary` (undo/save with the document). Toolbar opens `GlossaryDialog`; table edit can upsert and fill opposite names. Match/upsert/batch apply follow `glossaryMatchKey`. Batch apply overwrites the opposite name; mode-switch fill only fills empty opposite names.
+- **Glossary JSON I/O**: the `GlossaryDialog` footer exports the entry list on its own and imports either a bare entry array or `{ "glossary": [...] }`. When the current list is non-empty the import asks to replace or merge (merge upserts on `glossaryMatchKey`).
+- **Design JSON I/O**: the toolbar exports the whole `DesignDocument` as `{projectName}_{YYYY-MM-DD}.json` and imports a design file through `parseDesign`, replacing the current document and clearing undo history. Import warns first when there are unsaved changes; it stays enabled with no design so an empty canvas can open a file. This is separate from **Save (JSON)**, which only calls `onSave`.
+- **Table edit column selection**: each column row has a leading checkbox (last blank input row excluded) with select-all in the header and Shift+click range selection; the footer deletes all checked columns after a confirm.
 - Relationship edge customization state is serialized in document relationships:
     - `cardinality?: "1:1" | "1:N"`
     - `canvasLineHidden?: boolean`
