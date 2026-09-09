@@ -29,6 +29,23 @@ export function findGlossaryMatch(
     return glossary.find((e) => nameKey(e.physicalName) === pk);
 }
 
+/** id/논리명/물리명이 순서까지 같은지 비교(대화상자 초안의 변경 여부 판정용). */
+export function glossaryEntriesEqual(
+    a: readonly GlossaryEntry[],
+    b: readonly GlossaryEntry[],
+): boolean {
+    if (a.length !== b.length) return false;
+    return a.every((entry, index) => {
+        const other = b[index];
+        return (
+            other !== undefined &&
+            entry.id === other.id &&
+            entry.logicalName === other.logicalName &&
+            entry.physicalName === other.physicalName
+        );
+    });
+}
+
 /** Look up physical name by logical name (first match, case-insensitive). */
 export function lookupPhysicalName(
     glossary: readonly GlossaryEntry[],

@@ -3,10 +3,14 @@
 import type { GlossaryEntry } from "@rdbms-erd/core";
 import { createId } from "@rdbms-erd/core";
 import { FileJson, FolderOpen, Plus, Trash2, X } from "lucide-react";
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { downloadJsonFile, sanitizeFileBase } from "./fileDownload";
 import type { GlossaryMatchKey } from "./glossary";
-import { mergeGlossaryEntries, parseGlossaryJson } from "./glossary";
+import {
+    glossaryEntriesEqual,
+    mergeGlossaryEntries,
+    parseGlossaryJson,
+} from "./glossary";
 import { useErdTranslator } from "./i18n/I18nContext";
 import type { I18nKey, I18nVars } from "./i18n/types";
 
@@ -44,11 +48,40 @@ export function GlossaryDialog({
         | { kind: "failed"; message: string }
         | null
     >(null);
+    const [draft, setDraft] = useState<GlossaryEntry[]>([]);
+    const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+    const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
+    const rowInputRefs = useRef(new Map<string, HTMLInputElement>());
+    const wasOpenRef = useRef(false);
+
+    // 닫힘 -> 열림 전환에서만 초기화한다. `entries`가 갱신될 때마다 초기화하면
+    // 편집 중인 draft가 지워진다.
+    useEffect(() => {
+        if (open && !wasOpenRef.current) {
+            setDraft(entries.map((e) => ({ ...e })));
+            setSelectedIds(new Set());
+            setCloseConfirmOpen(false);
+            setImportPrompt(null);
+            setPendingFocusId(null);
+        }
+        wasOpenRef.current = open;
+    }, [open, entries]);
+
+    useEffect(() => {
+        if (!pendingFocusId) return;
+        const el = rowInputRefs.current.get(pendingFocusId);
+        if (!el) return;
+        el.focus();
+        el.scrollIntoView({ block: "nearest" });
+        setPendingFocusId(null);
+    }, [pendingFocusId, draft]);
 
     const allSelected = useMemo(
-        () => entries.length > 0 && entries.every((e) => selectedIds.has(e.id)),
-        [entries, selectedIds],
+        () => draft.length > 0 && draft.every((e) => selectedIds.has(e.id)),
+        [draft, selectedIds],
     );
+
+    const dirty = !glossaryEntriesEqual(draft, entries);
 
     if (!open) return null;
 
@@ -57,7 +90,7 @@ export function GlossaryDialog({
             setSelectedIds(new Set());
             return;
         }
-        setSelectedIds(new Set(entries.map((e) => e.id)));
+        setSelectedIds(new Set(draft.map((e) => e.id)));
     };
 
     const toggleOne = (id: string) => {
@@ -73,33 +106,49 @@ export function GlossaryDialog({
         id: string,
         patch: Partial<Pick<GlossaryEntry, "logicalName" | "physicalName">>,
     ) => {
-        onChange(entries.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+        setDraft((prev) =>
+            prev.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+        );
     };
 
     const addRow = () => {
         const id = createId("gloss");
-        onChange([...entries, { id, logicalName: "", physicalName: "" }]);
+        setDraft((prev) => [...prev, { id, logicalName: "", physicalName: "" }]);
         setSelectedIds((prev) => new Set(prev).add(id));
+        setPendingFocusId(id);
     };
 
     const deleteSelected = () => {
         if (selectedIds.size === 0) return;
-        onChange(entries.filter((e) => !selectedIds.has(e.id)));
+        setDraft((prev) => prev.filter((e) => !selectedIds.has(e.id)));
         setSelectedIds(new Set());
+    };
+
+    const commitDraft = () => {
+        onChange(draft);
     };
 
     const applySelected = () => {
         const ids = [...selectedIds].filter((id) => {
-            const e = entries.find((x) => x.id === id);
+            const e = draft.find((x) => x.id === id);
             return e && e.logicalName.trim() && e.physicalName.trim();
         });
         if (ids.length === 0) return;
+        commitDraft();
         onApplySelected(ids);
+    };
+
+    const requestClose = () => {
+        if (dirty) {
+            setCloseConfirmOpen(true);
+            return;
+        }
+        onClose();
     };
 
     const exportJson = () => {
         downloadJsonFile(
-            JSON.stringify(entries, null, 2),
+            JSON.stringify(draft, null, 2),
             sanitizeFileBase(undefined, "glossary"),
         );
     };
@@ -120,8 +169,8 @@ export function GlossaryDialog({
             });
             return;
         }
-        if (entries.length === 0) {
-            onChange(imported);
+        if (draft.length === 0) {
+            setDraft(imported);
             return;
         }
         setImportPrompt({ kind: "choose", entries: imported });
@@ -129,17 +178,22 @@ export function GlossaryDialog({
 
     const applyImport = (mode: "replace" | "merge") => {
         if (importPrompt?.kind !== "choose") return;
-        onChange(
+        setDraft((prev) =>
             mode === "replace"
                 ? importPrompt.entries
                 : mergeGlossaryEntries(
-                      entries,
+                      prev,
                       importPrompt.entries,
                       glossaryMatchKey,
                   ),
         );
         setSelectedIds(new Set());
         setImportPrompt(null);
+    };
+
+    const registerRowInput = (id: string, el: HTMLInputElement | null) => {
+        if (el) rowInputRefs.current.set(id, el);
+        else rowInputRefs.current.delete(id);
     };
 
     const physicalFirst = glossaryMatchKey === "physical";
@@ -173,7 +227,7 @@ export function GlossaryDialog({
                         type="button"
                         className="erd-dialog-icon-btn"
                         aria-label={t("dialog.close")}
-                        onClick={onClose}
+                        onClick={requestClose}
                     >
                         <X size={16} />
                     </button>
@@ -257,7 +311,7 @@ export function GlossaryDialog({
                             <span>{t(firstHeaderKey)}</span>
                             <span>{t(secondHeaderKey)}</span>
                         </div>
-                        {entries.length === 0 ? (
+                        {draft.length === 0 ? (
                             <p
                                 style={{
                                     margin: 16,
@@ -268,7 +322,7 @@ export function GlossaryDialog({
                                 {t("dialog.glossary.empty")}
                             </p>
                         ) : (
-                            entries.map((entry) => (
+                            draft.map((entry) => (
                                 <div
                                     key={entry.id}
                                     style={{
@@ -290,6 +344,12 @@ export function GlossaryDialog({
                                         <>
                                             <input
                                                 className="erd-input"
+                                                ref={(el) =>
+                                                    registerRowInput(
+                                                        entry.id,
+                                                        el,
+                                                    )
+                                                }
                                                 value={entry.physicalName}
                                                 onChange={(e) =>
                                                     updateEntry(entry.id, {
@@ -319,6 +379,12 @@ export function GlossaryDialog({
                                         <>
                                             <input
                                                 className="erd-input"
+                                                ref={(el) =>
+                                                    registerRowInput(
+                                                        entry.id,
+                                                        el,
+                                                    )
+                                                }
                                                 value={entry.logicalName}
                                                 onChange={(e) =>
                                                     updateEntry(entry.id, {
@@ -357,7 +423,7 @@ export function GlossaryDialog({
                         title={t("dialog.glossary.exportJson")}
                         aria-label={t("dialog.glossary.exportJson")}
                         onClick={exportJson}
-                        disabled={entries.length === 0}
+                        disabled={draft.length === 0}
                     >
                         <FileJson size={16} />
                     </button>
@@ -381,7 +447,15 @@ export function GlossaryDialog({
                     <button
                         type="button"
                         className="erd-btn erd-btn--primary"
-                        onClick={onClose}
+                        disabled={!dirty}
+                        onClick={commitDraft}
+                    >
+                        {t("dialog.save")}
+                    </button>
+                    <button
+                        type="button"
+                        className="erd-btn erd-btn--ghost"
+                        onClick={requestClose}
                     >
                         {t("dialog.close")}
                     </button>
@@ -461,6 +535,70 @@ export function GlossaryDialog({
                                     {t("dialog.close")}
                                 </button>
                             )}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            {closeConfirmOpen ? (
+                <div
+                    className="erd-dialog-backdrop erd-dialog-backdrop--nested"
+                    role="presentation"
+                >
+                    <div
+                        className="erd-dialog"
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-labelledby="erd-glossary-close-confirm-title"
+                        style={{ width: "min(520px, 100%)", height: "auto" }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <div className="erd-dialog-header">
+                            <span id="erd-glossary-close-confirm-title">
+                                {t("dialog.confirm.glossary.closeTitle")}
+                            </span>
+                        </div>
+                        <div className="erd-dialog-body">
+                            <p
+                                style={{
+                                    margin: 0,
+                                    fontSize: 14,
+                                    whiteSpace: "pre-line",
+                                    lineHeight: 1.45,
+                                }}
+                            >
+                                {t("dialog.confirm.glossary.close")}
+                            </p>
+                        </div>
+                        <div className="erd-dialog-footer">
+                            <button
+                                type="button"
+                                className="erd-btn erd-btn--primary"
+                                autoFocus
+                                onClick={() => {
+                                    commitDraft();
+                                    setCloseConfirmOpen(false);
+                                    onClose();
+                                }}
+                            >
+                                {t("dialog.confirm.glossary.save")}
+                            </button>
+                            <button
+                                type="button"
+                                className="erd-btn erd-btn--ghost"
+                                onClick={() => {
+                                    setCloseConfirmOpen(false);
+                                    onClose();
+                                }}
+                            >
+                                {t("dialog.confirm.glossary.discard")}
+                            </button>
+                            <button
+                                type="button"
+                                className="erd-btn erd-btn--ghost"
+                                onClick={() => setCloseConfirmOpen(false)}
+                            >
+                                {t("dialog.cancel")}
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -88,6 +88,11 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.confirm.tableEdit.close":
     "저장하지 않은 변경사항이 있습니다. 저장하지 않고 닫을까요?",
   "dialog.confirm.tableEdit.discard": "저장하지 않고 닫기",
+  "dialog.confirm.glossary.closeTitle": "Glossary 닫기",
+  "dialog.confirm.glossary.close":
+    "저장하지 않은 변경사항이 있습니다. 저장할까요?",
+  "dialog.confirm.glossary.save": "저장하고 닫기",
+  "dialog.confirm.glossary.discard": "저장 안 함",
   "dialog.confirm.columnDelete.title": "컬럼 삭제",
   "dialog.confirm.columnDelete": "이 컬럼을 삭제할까요?",
   "dialog.confirm.columnDelete.confirm": "삭제",

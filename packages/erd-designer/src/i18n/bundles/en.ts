@@ -88,6 +88,11 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.confirm.tableEdit.close":
     "You have unsaved changes. Close without saving?",
   "dialog.confirm.tableEdit.discard": "Close without saving",
+  "dialog.confirm.glossary.closeTitle": "Close glossary",
+  "dialog.confirm.glossary.close":
+    "You have unsaved changes. Save them?",
+  "dialog.confirm.glossary.save": "Save and close",
+  "dialog.confirm.glossary.discard": "Don't save",
   "dialog.confirm.columnDelete.title": "Delete column",
   "dialog.confirm.columnDelete": "Delete this column?",
   "dialog.confirm.columnDelete.confirm": "Delete",

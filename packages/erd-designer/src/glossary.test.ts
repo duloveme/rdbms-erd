@@ -4,6 +4,7 @@ import {
     applyGlossaryToTables,
     fillOppositeNamesFromGlossary,
     findGlossaryMatch,
+    glossaryEntriesEqual,
     lookupLogicalName,
     lookupPhysicalName,
     mergeGlossaryEntries,
@@ -71,6 +72,26 @@ describe("glossary helpers", () => {
         );
         expect(byPhysical).toHaveLength(2);
         expect(byPhysical[1]?.logicalName).toBe("수정일시");
+    });
+
+    it("compares entry lists by id, names and order", () => {
+        expect(glossaryEntriesEqual(SAMPLE, SAMPLE.map((e) => ({ ...e })))).toBe(
+            true,
+        );
+        expect(glossaryEntriesEqual([], [])).toBe(true);
+
+        const renamed = SAMPLE.map((e, i) =>
+            i === 0 ? { ...e, physicalName: "wh_id" } : { ...e },
+        );
+        expect(glossaryEntriesEqual(SAMPLE, renamed)).toBe(false);
+
+        expect(glossaryEntriesEqual(SAMPLE, [SAMPLE[0]!])).toBe(false);
+
+        const reordered = [SAMPLE[1]!, SAMPLE[0]!];
+        expect(glossaryEntriesEqual(SAMPLE, reordered)).toBe(false);
+
+        const reid = SAMPLE.map((e) => ({ ...e, id: `${e.id}-x` }));
+        expect(glossaryEntriesEqual(SAMPLE, reid)).toBe(false);
     });
 
     it("removes by ids", () => {
