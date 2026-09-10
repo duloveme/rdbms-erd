@@ -171,6 +171,7 @@ export const koBundle: Record<I18nKey, string> = {
   "designer.defaultTableLogicalName": "테이블{{n}}",
   "designer.defaultColumnName": "컬럼1",
   "excel.tableList.sheetName": "테이블 목록",
+  "excel.tableList.schema": "스키마",
   "excel.tableList.tableNamePhysical": "테이블명(물리)",
   "excel.tableList.tableNameLogical": "테이블명(논리)",
   "excel.tableList.description": "설명",

@@ -17,7 +17,7 @@ function table(partial: Partial<TableModel> & Pick<TableModel, "id">): TableMode
 }
 
 describe("formatTableListPhysicalName", () => {
-    it("formats schema.physical", () => {
+    it("returns physical name without schema", () => {
         expect(
             formatTableListPhysicalName(
                 table({
@@ -27,10 +27,10 @@ describe("formatTableListPhysicalName", () => {
                     logicalName: "사용자",
                 }),
             ),
-        ).toBe("dbo.USERS");
+        ).toBe("USERS");
     });
 
-    it("formats physical without schema", () => {
+    it("returns physical name when schema is absent", () => {
         expect(
             formatTableListPhysicalName(
                 table({
@@ -94,27 +94,30 @@ describe("buildTablesXlsxWorkbook", () => {
         ]);
 
         const list = wb.getWorksheet("테이블 목록")!;
-        expect(list.getCell("A1").value).toBe("테이블명(물리)");
-        expect(list.getCell("B1").value).toBe("테이블명(논리)");
-        expect(list.getCell("C1").value).toBe("설명");
+        expect(list.getCell("A1").value).toBe("스키마");
+        expect(list.getCell("B1").value).toBe("테이블명(물리)");
+        expect(list.getCell("C1").value).toBe("테이블명(논리)");
+        expect(list.getCell("D1").value).toBe("설명");
 
-        const nameCell = list.getCell("A2").value as {
+        expect(list.getCell("A2").value).toBe("dbo");
+        const nameCell = list.getCell("B2").value as {
             text: string;
             hyperlink: string;
         };
-        expect(nameCell.text).toBe("dbo.ORDERS");
+        expect(nameCell.text).toBe("ORDERS");
         expect(nameCell.hyperlink).toBe("#'dbo.ORDERS'!A1");
-        expect(list.getCell("B2").value).toBe("주문");
-        expect(list.getCell("C2").value).toBe("주문 테이블");
+        expect(list.getCell("C2").value).toBe("주문");
+        expect(list.getCell("D2").value).toBe("주문 테이블");
 
-        const usersName = list.getCell("A3").value as {
+        expect(list.getCell("A3").value).toBe("dbo");
+        const usersName = list.getCell("B3").value as {
             text: string;
             hyperlink: string;
         };
-        expect(usersName.text).toBe("dbo.USERS");
+        expect(usersName.text).toBe("USERS");
         expect(usersName.hyperlink).toBe("#'dbo.USERS'!A1");
-        expect(list.getCell("B3").value).toBe("사용자");
-        expect(list.getCell("C3").value).toBe("사용자 테이블");
+        expect(list.getCell("C3").value).toBe("사용자");
+        expect(list.getCell("D3").value).toBe("사용자 테이블");
 
         const detail = wb.getWorksheet("dbo.USERS")!;
         expect(detail.getCell("A1").value).toBe("스키마");
@@ -136,9 +139,10 @@ describe("buildTablesXlsxWorkbook", () => {
         expect(wb.worksheets[0]!.name).toBe("Table List");
 
         const list = wb.getWorksheet("Table List")!;
-        expect(list.getCell("A1").value).toBe("Table Name(Physical)");
-        expect(list.getCell("B1").value).toBe("Table Name(Logical)");
-        expect(list.getCell("C1").value).toBe("Description");
+        expect(list.getCell("A1").value).toBe("Schema");
+        expect(list.getCell("B1").value).toBe("Table Name(Physical)");
+        expect(list.getCell("C1").value).toBe("Table Name(Logical)");
+        expect(list.getCell("D1").value).toBe("Description");
 
         const detail = wb.getWorksheet("dbo.USERS")!;
         expect(detail.getCell("A1").value).toBe("Schema");
@@ -175,12 +179,13 @@ describe("buildTablesXlsxWorkbook", () => {
             "테이블 목록_2",
         ]);
         const list = wb.getWorksheet("테이블 목록")!;
-        const nameCell = list.getCell("A2").value as {
+        expect(list.getCell("A2").value).toBe("");
+        const nameCell = list.getCell("B2").value as {
             text: string;
             hyperlink: string;
         };
         expect(nameCell.text).toBe("테이블 목록");
         expect(nameCell.hyperlink).toBe("#'테이블 목록_2'!A1");
-        expect(list.getCell("B2").value).toBe("충돌");
+        expect(list.getCell("C2").value).toBe("충돌");
     });
 });

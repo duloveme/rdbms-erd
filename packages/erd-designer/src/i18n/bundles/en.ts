@@ -171,6 +171,7 @@ export const enBundle: Record<I18nKey, string> = {
   "designer.defaultTableLogicalName": "Table{{n}}",
   "designer.defaultColumnName": "Column1",
   "excel.tableList.sheetName": "Table List",
+  "excel.tableList.schema": "Schema",
   "excel.tableList.tableNamePhysical": "Table Name(Physical)",
   "excel.tableList.tableNameLogical": "Table Name(Logical)",
   "excel.tableList.description": "Description",

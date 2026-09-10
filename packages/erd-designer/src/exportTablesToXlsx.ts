@@ -18,6 +18,8 @@ const EXCEL_TYPE_COL_WIDTH = 16.5;
 const EXCEL_FIELD_PHYSICAL_COL_WIDTH = 24;
 /** Field Name(Logical): 한글 등 논리명 표시용(Physical보다 약간 넓게) */
 const EXCEL_FIELD_LOGICAL_COL_WIDTH = 26;
+/** 목록 시트 스키마 열 */
+const EXCEL_LIST_SCHEMA_COL_WIDTH = 14;
 /** 목록 시트 물리/논리 테이블명 열 */
 const EXCEL_LIST_TABLE_NAME_COL_WIDTH = 28;
 /** 목록 시트 설명 열 */
@@ -41,9 +43,10 @@ const COL_IDX = {
 } as const;
 
 const LIST_COL = {
-    tablePhysical: 1,
-    tableLogical: 2,
-    description: 3,
+    schema: 1,
+    tablePhysical: 2,
+    tableLogical: 3,
+    description: 4,
 } as const;
 
 const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>]/g;
@@ -180,16 +183,10 @@ function sortTablesForExport(tables: TableModel[]): TableModel[] {
 }
 
 /**
- * 목록 물리명 열: `schema.physicalName` (스키마 없으면 `physicalName`).
- * 물리명이 비면 빈 문자열.
+ * 목록 물리명 열: 스키마 없이 `physicalName`만.
  */
 export function formatTableListPhysicalName(table: TableModel): string {
-    const schema = (table.schemaName ?? "").trim();
-    const physical = (table.physicalName ?? "").trim();
-    if (physical.length === 0) {
-        return "";
-    }
-    return schema.length > 0 ? `${schema}.${physical}` : physical;
+    return (table.physicalName ?? "").trim();
 }
 
 /** Excel 내부 시트 하이퍼링크 (`#'Sheet'!A1`). 시트명의 `'`는 `''`로 이스케이프. */
@@ -234,11 +231,15 @@ function buildTableListSheet(
     sheetNames: string[],
     t: TranslateFn,
 ): void {
+    ws.getColumn(LIST_COL.schema).width = EXCEL_LIST_SCHEMA_COL_WIDTH;
     ws.getColumn(LIST_COL.tablePhysical).width = EXCEL_LIST_TABLE_NAME_COL_WIDTH;
     ws.getColumn(LIST_COL.tableLogical).width = EXCEL_LIST_TABLE_NAME_COL_WIDTH;
     ws.getColumn(LIST_COL.description).width = EXCEL_LIST_DESCRIPTION_COL_WIDTH;
 
     const headerRow = ws.getRow(1);
+    const schemaHeader = headerRow.getCell(LIST_COL.schema);
+    schemaHeader.value = t("excel.tableList.schema");
+    styleHeaderCell(schemaHeader, "left");
     const physicalHeader = headerRow.getCell(LIST_COL.tablePhysical);
     physicalHeader.value = t("excel.tableList.tableNamePhysical");
     styleHeaderCell(physicalHeader, "left");
@@ -256,6 +257,10 @@ function buildTableListSheet(
         const row = ws.getRow(rowIndex);
         const alt = i % 2 === 1;
         const physicalName = formatTableListPhysicalName(table);
+
+        const schemaCell = row.getCell(LIST_COL.schema);
+        schemaCell.value = table.schemaName?.trim() ?? "";
+        styleListBodyCell(schemaCell, alt, false);
 
         const physicalCell = row.getCell(LIST_COL.tablePhysical);
         physicalCell.value = {

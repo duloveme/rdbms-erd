@@ -159,6 +159,7 @@ export const I18N_KEYS = [
   "designer.defaultTableLogicalName",
   "designer.defaultColumnName",
   "excel.tableList.sheetName",
+  "excel.tableList.schema",
   "excel.tableList.tableNamePhysical",
   "excel.tableList.tableNameLogical",
   "excel.tableList.description",
