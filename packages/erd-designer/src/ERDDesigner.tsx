@@ -905,6 +905,8 @@ export interface ERDDesignerHandle {
         targetTableId: string,
         sourceColumnId?: string,
     ) => void;
+    /** Replace canvas table selection with the given ids (unknown ids ignored). Clears edge selection. */
+    selectTables: (tableIds: readonly string[]) => void;
 }
 
 export interface ERDDesignerProps {
@@ -1497,9 +1499,15 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
         flowEdgesRef.current = flowEdges;
 
         const selectionSigRef = useRef<string>("");
+        /** Host `selectTables` after `addTableAt`: apply once nodes merge from diagramSignature. */
+        const pendingSelectTableIdsRef = useRef<string[] | null>(null);
 
         useEffect(() => {
-            selectionSigRef.current = "";
+            const pending = pendingSelectTableIdsRef.current;
+            const pendingSet = pending ? new Set(pending) : null;
+            if (!pendingSet) {
+                selectionSigRef.current = "";
+            }
             // 엣지를 노드보다 먼저(또는 같은 틱에) 맞춰, FK 핸들 제거 직후
             // 한 프레임 동안 옛 엣지가 없는 핸들을 가리켜 React Flow #008이 나지 않게 한다.
             setEdges((prev) => {
@@ -1509,7 +1517,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     return {
                         ...old,
                         ...next,
-                        selected: old?.selected ?? false,
+                        selected: pendingSet
+                            ? false
+                            : (old?.selected ?? false),
                     };
                 });
             });
@@ -1520,10 +1530,16 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                     return {
                         ...old,
                         ...next,
-                        selected: old?.selected ?? false,
+                        selected: pendingSet
+                            ? pendingSet.has(next.id)
+                            : (old?.selected ?? false),
                     };
                 });
             });
+            if (pending) {
+                pendingSelectTableIdsRef.current = null;
+                selectionSigRef.current = `${pending.join("\0")}|`;
+            }
             if (pendingFitFromValueRef.current) {
                 requestAnimationFrame(() => {
                     void rfInstanceRef.current?.fitView({
@@ -1937,6 +1953,45 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 addTable(table, x, y);
             },
             [addTable, hasDesign],
+        );
+
+        const selectTables = useCallback(
+            (tableIds: readonly string[]) => {
+                const existing = new Set(
+                    useDesignerStore
+                        .getState()
+                        .doc.model.tables.map((t) => t.id),
+                );
+                const ids: string[] = [];
+                const seen = new Set<string>();
+                for (const id of tableIds) {
+                    if (!existing.has(id) || seen.has(id)) continue;
+                    seen.add(id);
+                    ids.push(id);
+                }
+                const idSet = new Set(ids);
+                pendingSelectTableIdsRef.current = ids;
+                setSelectedNodeIds(ids);
+                setSelectedEdgeIds([]);
+                setElevatedEdgeIds([]);
+                selectionSigRef.current = `${ids.join("\0")}|`;
+                setNodes((prev) => {
+                    const next = prev.map((n) => ({
+                        ...n,
+                        selected: idSet.has(n.id),
+                    }));
+                    if (ids.every((id) => prev.some((n) => n.id === id))) {
+                        pendingSelectTableIdsRef.current = null;
+                    }
+                    return next;
+                });
+                setEdges((prev) =>
+                    prev.map((e) =>
+                        e.selected ? { ...e, selected: false } : e,
+                    ),
+                );
+            },
+            [useDesignerStore],
         );
 
         const applyForeignKeyBatch = useCallback(
@@ -2577,8 +2632,15 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 },
                 addTableAt,
                 connectWithForeignKey,
+                selectTables,
             }),
-            [addTableAt, connectWithForeignKey, doc, useDesignerStore],
+            [
+                addTableAt,
+                connectWithForeignKey,
+                doc,
+                selectTables,
+                useDesignerStore,
+            ],
         );
 
         const runAlign = useCallback(
@@ -2944,11 +3006,10 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
                 ) {
                     if (!hasDesign || toolbarDisabled) return;
                     e.preventDefault();
-                    if (e.key === "ArrowUp") {
-                        setDisplayMode("logical");
-                    } else {
-                        setDisplayMode("physical");
-                    }
+                    e.stopPropagation();
+                    const next =
+                        e.key === "ArrowUp" ? "logical" : "physical";
+                    if (displayMode !== next) setDisplayMode(next);
                     return;
                 }
 
@@ -3068,6 +3129,7 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             creatingTableDraft,
             deleteConfirmDialog,
             simpleTableDeleteConfirm,
+            displayMode,
             doc,
             editingTableId,
             fkCollisionDialog,

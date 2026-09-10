@@ -137,6 +137,7 @@ const hostMetas = [
 - `undo()`, `redo()`
 - `addTableAt(table, x, y)`
 - `connectWithForeignKey(sourceTableId, targetTableId, sourceColumnId?)`
+- `selectTables(tableIds)` — replace canvas table selection (unknown ids ignored; clears edge selection)
 
 ## Other Exports
 
