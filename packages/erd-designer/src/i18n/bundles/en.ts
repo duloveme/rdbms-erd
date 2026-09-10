@@ -169,5 +169,19 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.glossary.importFailedTitle": "Import failed",
   "dialog.glossary.importFailed": "Failed to load glossary JSON.\n{{message}}",
   "designer.defaultTableLogicalName": "Table{{n}}",
-  "designer.defaultColumnName": "Column1"
+  "designer.defaultColumnName": "Column1",
+  "excel.tableList.sheetName": "Table List",
+  "excel.tableList.tableNamePhysical": "Table Name(Physical)",
+  "excel.tableList.tableNameLogical": "Table Name(Logical)",
+  "excel.tableList.description": "Description",
+  "excel.tableSheet.schema": "Schema",
+  "excel.tableSheet.physicalName": "Physical Name",
+  "excel.tableSheet.logicalName": "Logical Name",
+  "excel.tableSheet.description": "Description",
+  "excel.tableSheet.fieldPhysical": "Field Name(Physical)",
+  "excel.tableSheet.fieldLogical": "Field Name(Logical)",
+  "excel.tableSheet.type": "Type",
+  "excel.tableSheet.defaultValue": "Default Value",
+  "excel.tableSheet.pk": "PK",
+  "excel.tableSheet.nullable": "Nullable"
 };

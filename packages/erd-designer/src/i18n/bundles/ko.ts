@@ -169,5 +169,19 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.glossary.importFailedTitle": "불러오기 실패",
   "dialog.glossary.importFailed": "Glossary JSON을 불러오지 못했습니다.\n{{message}}",
   "designer.defaultTableLogicalName": "테이블{{n}}",
-  "designer.defaultColumnName": "컬럼1"
+  "designer.defaultColumnName": "컬럼1",
+  "excel.tableList.sheetName": "테이블 목록",
+  "excel.tableList.tableNamePhysical": "테이블명(물리)",
+  "excel.tableList.tableNameLogical": "테이블명(논리)",
+  "excel.tableList.description": "설명",
+  "excel.tableSheet.schema": "스키마",
+  "excel.tableSheet.physicalName": "물리명",
+  "excel.tableSheet.logicalName": "논리명",
+  "excel.tableSheet.description": "설명",
+  "excel.tableSheet.fieldPhysical": "필드명(물리)",
+  "excel.tableSheet.fieldLogical": "필드명(논리)",
+  "excel.tableSheet.type": "타입",
+  "excel.tableSheet.defaultValue": "기본값",
+  "excel.tableSheet.pk": "PK",
+  "excel.tableSheet.nullable": "널 허용"
 };

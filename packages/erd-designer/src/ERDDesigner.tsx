@@ -3230,8 +3230,9 @@ const ERDDesignerShell = forwardRef<ERDDesignerHandle, ERDDesignerShellProps>(
             );
             await exportTablesToXlsxFile(tables, {
                 projectName: liveDoc.settings?.projectName,
+                t,
             });
-        }, [hasDesign, onExportExcel, selectedNodeIds, useDesignerStore]);
+        }, [hasDesign, onExportExcel, selectedNodeIds, t, useDesignerStore]);
 
         const exportDesignJson = useCallback(() => {
             if (!hasDesign) return;

@@ -157,7 +157,21 @@ export const I18N_KEYS = [
   "dialog.glossary.importFailedTitle",
   "dialog.glossary.importFailed",
   "designer.defaultTableLogicalName",
-  "designer.defaultColumnName"
+  "designer.defaultColumnName",
+  "excel.tableList.sheetName",
+  "excel.tableList.tableNamePhysical",
+  "excel.tableList.tableNameLogical",
+  "excel.tableList.description",
+  "excel.tableSheet.schema",
+  "excel.tableSheet.physicalName",
+  "excel.tableSheet.logicalName",
+  "excel.tableSheet.description",
+  "excel.tableSheet.fieldPhysical",
+  "excel.tableSheet.fieldLogical",
+  "excel.tableSheet.type",
+  "excel.tableSheet.defaultValue",
+  "excel.tableSheet.pk",
+  "excel.tableSheet.nullable"
 ] as const;
 
 export type I18nKey = (typeof I18N_KEYS)[number];

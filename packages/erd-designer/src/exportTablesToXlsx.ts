@@ -1,5 +1,7 @@
 import type { TableModel } from "@rdbms-erd/core";
 import ExcelJS from "exceljs";
+import { createTranslator } from "./i18n/createTranslator";
+import type { I18nKey, I18nVars } from "./i18n/types";
 
 const INVALID_SHEET = /[:\\/?*[\]]/g;
 
@@ -8,31 +10,18 @@ const HEADER_FILL = "FF2E5077";
 const HEADER_FONT = "FFFFFFFF";
 const META_VALUE_FILL = "FFF8FAFC";
 const COLUMN_BODY_ALT = "FFF1F5F9";
+const HYPERLINK_FONT = "FF0563C1";
 
-/** 테이블 메타 라벨 (세로, A열) */
-const TABLE_META_LABELS = [
-    "Schema",
-    "Physical Name",
-    "Logical Name",
-    "Description",
-] as const;
 /** ExcelJS 열 너비: Type / Default Value 공통 */
 const EXCEL_TYPE_COL_WIDTH = 16.5;
 /** Field Name(Physical): 긴 식별자·PascalCase 컬럼명 표시용 */
 const EXCEL_FIELD_PHYSICAL_COL_WIDTH = 24;
 /** Field Name(Logical): 한글 등 논리명 표시용(Physical보다 약간 넓게) */
 const EXCEL_FIELD_LOGICAL_COL_WIDTH = 26;
-
-/** 컬럼 영역 헤더 */
-const COLUMN_HEADERS = [
-    "Field Name(Physical)",
-    "Field Name(Logical)",
-    "Type",
-    "Default Value",
-    "PK",
-    "Nullable",
-    "Description",
-] as const;
+/** 목록 시트 물리/논리 테이블명 열 */
+const EXCEL_LIST_TABLE_NAME_COL_WIDTH = 28;
+/** 목록 시트 설명 열 */
+const EXCEL_LIST_DESCRIPTION_COL_WIDTH = 42;
 
 /** 컬럼 데이터 블록 최소 행 수(컬럼이 적어도 빈 행까지 동일 스타일 유지). */
 const COLUMN_DATA_ROW_MIN = 20;
@@ -51,7 +40,21 @@ const COL_IDX = {
     description: 7,
 } as const;
 
+const LIST_COL = {
+    tablePhysical: 1,
+    tableLogical: 2,
+    description: 3,
+} as const;
+
 const INVALID_FILENAME_CHARS = /[/\\?%*:|"<>]/g;
+
+type TranslateFn = (key: I18nKey, vars?: I18nVars) => string;
+
+export type ExportTablesToXlsxOptions = {
+    projectName?: unknown;
+    /** Host/UI translator; defaults to Korean bundle when omitted. */
+    t?: TranslateFn;
+};
 
 function sanitizeProjectFileBase(projectName: unknown): string {
     const raw = typeof projectName === "string" ? projectName.trim() : "";
@@ -129,6 +132,26 @@ function styleColumnBodyCell(
     cell.border = thinBorder();
 }
 
+function styleListBodyCell(cell: ExcelJS.Cell, alt: boolean, link: boolean): void {
+    if (alt) {
+        cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: COLUMN_BODY_ALT },
+        };
+    }
+    cell.font = link
+        ? {
+              size: 11,
+              name: "Calibri",
+              color: { argb: HYPERLINK_FONT },
+              underline: true,
+          }
+        : { size: 11, name: "Calibri" };
+    cell.alignment = { vertical: "middle", horizontal: "left" };
+    cell.border = thinBorder();
+}
+
 function safeSheetLength31(raw: string, fallback: string): string {
     const t = raw.replace(INVALID_SHEET, "_").trim() || fallback;
     return t.length > 31 ? t.slice(0, 31) : t;
@@ -156,8 +179,30 @@ function sortTablesForExport(tables: TableModel[]): TableModel[] {
     });
 }
 
-function uniqueSheetNames(tables: TableModel[]): string[] {
-    const used = new Set<string>();
+/**
+ * 목록 물리명 열: `schema.physicalName` (스키마 없으면 `physicalName`).
+ * 물리명이 비면 빈 문자열.
+ */
+export function formatTableListPhysicalName(table: TableModel): string {
+    const schema = (table.schemaName ?? "").trim();
+    const physical = (table.physicalName ?? "").trim();
+    if (physical.length === 0) {
+        return "";
+    }
+    return schema.length > 0 ? `${schema}.${physical}` : physical;
+}
+
+/** Excel 내부 시트 하이퍼링크 (`#'Sheet'!A1`). 시트명의 `'`는 `''`로 이스케이프. */
+export function sheetInternalHyperlink(sheetName: string): string {
+    const escaped = sheetName.replace(/'/g, "''");
+    return `#'${escaped}'!A1`;
+}
+
+function uniqueSheetNames(
+    tables: TableModel[],
+    reservedNames: readonly string[] = [],
+): string[] {
+    const used = new Set(reservedNames.map((n) => n.toLowerCase()));
     const out: string[] = [];
     tables.forEach((table, idx) => {
         let base = schemaDotTableSheetBaseName(table, idx);
@@ -179,7 +224,61 @@ function yn(v: boolean | undefined): string {
     return v ? "Y" : "N";
 }
 
-function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
+function resolveTranslate(t?: TranslateFn): TranslateFn {
+    return t ?? createTranslator({ locale: "ko" });
+}
+
+function buildTableListSheet(
+    ws: ExcelJS.Worksheet,
+    tables: TableModel[],
+    sheetNames: string[],
+    t: TranslateFn,
+): void {
+    ws.getColumn(LIST_COL.tablePhysical).width = EXCEL_LIST_TABLE_NAME_COL_WIDTH;
+    ws.getColumn(LIST_COL.tableLogical).width = EXCEL_LIST_TABLE_NAME_COL_WIDTH;
+    ws.getColumn(LIST_COL.description).width = EXCEL_LIST_DESCRIPTION_COL_WIDTH;
+
+    const headerRow = ws.getRow(1);
+    const physicalHeader = headerRow.getCell(LIST_COL.tablePhysical);
+    physicalHeader.value = t("excel.tableList.tableNamePhysical");
+    styleHeaderCell(physicalHeader, "left");
+    const logicalHeader = headerRow.getCell(LIST_COL.tableLogical);
+    logicalHeader.value = t("excel.tableList.tableNameLogical");
+    styleHeaderCell(logicalHeader, "left");
+    const descHeader = headerRow.getCell(LIST_COL.description);
+    descHeader.value = t("excel.tableList.description");
+    styleHeaderCell(descHeader, "left");
+
+    for (let i = 0; i < tables.length; i++) {
+        const table = tables[i]!;
+        const sheetName = sheetNames[i]!;
+        const rowIndex = i + 2;
+        const row = ws.getRow(rowIndex);
+        const alt = i % 2 === 1;
+        const physicalName = formatTableListPhysicalName(table);
+
+        const physicalCell = row.getCell(LIST_COL.tablePhysical);
+        physicalCell.value = {
+            text: physicalName,
+            hyperlink: sheetInternalHyperlink(sheetName),
+        };
+        styleListBodyCell(physicalCell, alt, true);
+
+        const logicalCell = row.getCell(LIST_COL.tableLogical);
+        logicalCell.value = (table.logicalName ?? "").trim();
+        styleListBodyCell(logicalCell, alt, false);
+
+        const descCell = row.getCell(LIST_COL.description);
+        descCell.value = table.description?.trim() ?? "";
+        styleListBodyCell(descCell, alt, false);
+    }
+}
+
+function buildSheet(
+    ws: ExcelJS.Worksheet,
+    table: TableModel,
+    t: TranslateFn,
+): void {
     // 열 너비는 상수로 유지 (ExcelJS character width 단위)
     ws.getColumn(COL_IDX.fieldPhysical).width = EXCEL_FIELD_PHYSICAL_COL_WIDTH;
     ws.getColumn(COL_IDX.fieldLogical).width = EXCEL_FIELD_LOGICAL_COL_WIDTH;
@@ -189,14 +288,19 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
     ws.getColumn(COL_IDX.nullable).width = 10.5;
     ws.getColumn(COL_IDX.description).width = 42;
 
-    // --- 테이블 메타: A열 라벨 / B~G열 값 병합 (세로 4행) ---
+    const metaLabels = [
+        t("excel.tableSheet.schema"),
+        t("excel.tableSheet.physicalName"),
+        t("excel.tableSheet.logicalName"),
+        t("excel.tableSheet.description"),
+    ] as const;
     const metaValues = [
         table.schemaName?.trim() ?? "",
         (table.physicalName ?? "").trim(),
         (table.logicalName ?? "").trim(),
         table.description?.trim() ?? "",
     ];
-    TABLE_META_LABELS.forEach((label, i) => {
+    metaLabels.forEach((label, i) => {
         const rowNum = i + 1;
         const row = ws.getRow(rowNum);
         const labelCell = row.getCell(COL_IDX.fieldPhysical);
@@ -213,9 +317,18 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
         );
     });
 
-    // --- 컬럼 영역 헤더 ---
+    const columnHeaders = [
+        t("excel.tableSheet.fieldPhysical"),
+        t("excel.tableSheet.fieldLogical"),
+        t("excel.tableSheet.type"),
+        t("excel.tableSheet.defaultValue"),
+        t("excel.tableSheet.pk"),
+        t("excel.tableSheet.nullable"),
+        t("excel.tableSheet.description"),
+    ] as const;
+
     const rHeader = ws.getRow(COLUMN_HEADER_ROW);
-    COLUMN_HEADERS.forEach((h, i) => {
+    columnHeaders.forEach((h, i) => {
         const colIndex = i + 1;
         const cell = rHeader.getCell(colIndex);
         cell.value = h;
@@ -224,12 +337,8 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
     });
 
     const columns = Array.isArray(table.columns) ? table.columns : [];
-    const columnDataRowCount = Math.max(
-        COLUMN_DATA_ROW_MIN,
-        columns.length,
-    );
+    const columnDataRowCount = Math.max(COLUMN_DATA_ROW_MIN, columns.length);
 
-    // --- 컬럼 데이터: 최소 20행, 컬럼이 더 많으면 그만큼 확장 ---
     for (let i = 0; i < columnDataRowCount; i++) {
         const rowIndex = COLUMN_FIRST_DATA_ROW + i;
         const row = ws.getRow(rowIndex);
@@ -257,27 +366,51 @@ function buildSheet(ws: ExcelJS.Worksheet, table: TableModel): void {
 }
 
 /**
- * 테이블마다 워크시트 1개, Field Name(Physical/Logical), Type, Default Value, PK 등으로 `.xlsx` 다운로드(브라우저).
- * 파일명: `프로젝트명_YYYY-MM-DD.xlsx` (`projectName`이 비거나 정리 후 비면 `project`).
+ * 첫 시트에 테이블 목록, 이후 테이블마다 워크시트 1개.
+ * 라벨은 `t`(또는 기본 ko 번들)로 채운다.
  */
-export async function exportTablesToXlsxFile(
+export function buildTablesXlsxWorkbook(
     tables: TableModel[],
-    options?: { projectName?: unknown },
-): Promise<void> {
-    if (tables.length === 0 || typeof window === "undefined") return;
-
+    options?: Pick<ExportTablesToXlsxOptions, "t">,
+): ExcelJS.Workbook {
+    const t = resolveTranslate(options?.t);
     const wb = new ExcelJS.Workbook();
     wb.creator = "rdbms-erd";
+
     const sorted = sortTablesForExport(tables);
-    const names = uniqueSheetNames(sorted);
+    const listSheetName = safeSheetLength31(
+        t("excel.tableList.sheetName"),
+        "TableList",
+    );
+    const names = uniqueSheetNames(sorted, [listSheetName]);
+
+    const listWs = wb.addWorksheet(listSheetName, {
+        views: [{ showGridLines: false }],
+    });
+    buildTableListSheet(listWs, sorted, names, t);
 
     for (let i = 0; i < sorted.length; i++) {
         const table = sorted[i]!;
         const ws = wb.addWorksheet(names[i]!, {
             views: [{ showGridLines: false }],
         });
-        buildSheet(ws, table);
+        buildSheet(ws, table, t);
     }
+
+    return wb;
+}
+
+/**
+ * 테이블마다 워크시트 1개(+ 첫 시트 목록), Field Name(Physical/Logical), Type, Default Value, PK 등으로 `.xlsx` 다운로드(브라우저).
+ * 파일명: `프로젝트명_YYYY-MM-DD.xlsx` (`projectName`이 비거나 정리 후 비면 `project`).
+ */
+export async function exportTablesToXlsxFile(
+    tables: TableModel[],
+    options?: ExportTablesToXlsxOptions,
+): Promise<void> {
+    if (tables.length === 0 || typeof window === "undefined") return;
+
+    const wb = buildTablesXlsxWorkbook(tables, { t: options?.t });
 
     const stamp = new Date().toISOString().slice(0, 10);
     const base = sanitizeProjectFileBase(options?.projectName);
