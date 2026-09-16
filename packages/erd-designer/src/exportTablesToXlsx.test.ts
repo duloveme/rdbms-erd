@@ -120,17 +120,23 @@ describe("buildTablesXlsxWorkbook", () => {
         expect(list.getCell("D3").value).toBe("사용자 테이블");
 
         const detail = wb.getWorksheet("dbo.USERS")!;
-        expect(detail.getCell("A1").value).toBe("스키마");
-        expect(detail.getCell("A2").value).toBe("물리명");
-        expect(detail.getCell("A3").value).toBe("논리명");
-        expect(detail.getCell("A4").value).toBe("설명");
-        expect(detail.getCell("A6").value).toBe("필드명(물리)");
-        expect(detail.getCell("B6").value).toBe("필드명(논리)");
-        expect(detail.getCell("C6").value).toBe("타입");
-        expect(detail.getCell("D6").value).toBe("기본값");
-        expect(detail.getCell("E6").value).toBe("PK");
-        expect(detail.getCell("F6").value).toBe("널 허용");
-        expect(detail.getCell("G6").value).toBe("설명");
+        const backLink = detail.getCell("A1").value as {
+            text: string;
+            hyperlink: string;
+        };
+        expect(backLink.text).toBe("목록으로 이동");
+        expect(backLink.hyperlink).toBe("#'테이블 목록'!A1");
+        expect(detail.getCell("A2").value).toBe("스키마");
+        expect(detail.getCell("A3").value).toBe("물리명");
+        expect(detail.getCell("A4").value).toBe("논리명");
+        expect(detail.getCell("A5").value).toBe("설명");
+        expect(detail.getCell("A7").value).toBe("필드명(물리)");
+        expect(detail.getCell("B7").value).toBe("필드명(논리)");
+        expect(detail.getCell("C7").value).toBe("타입");
+        expect(detail.getCell("D7").value).toBe("기본값");
+        expect(detail.getCell("E7").value).toBe("PK");
+        expect(detail.getCell("F7").value).toBe("널 허용");
+        expect(detail.getCell("G7").value).toBe("설명");
     });
 
     it("uses English labels when locale is en", () => {
@@ -145,10 +151,16 @@ describe("buildTablesXlsxWorkbook", () => {
         expect(list.getCell("D1").value).toBe("Description");
 
         const detail = wb.getWorksheet("dbo.USERS")!;
-        expect(detail.getCell("A1").value).toBe("Schema");
-        expect(detail.getCell("A2").value).toBe("Physical Name");
-        expect(detail.getCell("A6").value).toBe("Field Name(Physical)");
-        expect(detail.getCell("F6").value).toBe("Nullable");
+        const backLink = detail.getCell("A1").value as {
+            text: string;
+            hyperlink: string;
+        };
+        expect(backLink.text).toBe("Go to List");
+        expect(backLink.hyperlink).toBe("#'Table List'!A1");
+        expect(detail.getCell("A2").value).toBe("Schema");
+        expect(detail.getCell("A3").value).toBe("Physical Name");
+        expect(detail.getCell("A7").value).toBe("Field Name(Physical)");
+        expect(detail.getCell("F7").value).toBe("Nullable");
     });
 
     it("defaults to Korean when t is omitted", () => {

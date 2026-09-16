@@ -27,9 +27,13 @@ const EXCEL_LIST_DESCRIPTION_COL_WIDTH = 42;
 
 /** 컬럼 데이터 블록 최소 행 수(컬럼이 적어도 빈 행까지 동일 스타일 유지). */
 const COLUMN_DATA_ROW_MIN = 20;
-/** 테이블 메타 4행 + 빈 1행 */
-const COLUMN_HEADER_ROW = 6;
-const COLUMN_FIRST_DATA_ROW = 7;
+/** 목록 링크 1행 + 테이블 메타 4행 + 빈 1행 */
+const COLUMN_HEADER_ROW = 7;
+const COLUMN_FIRST_DATA_ROW = 8;
+/** 목록으로 이동 링크 행 */
+const BACK_TO_LIST_ROW = 1;
+/** 테이블 메타 시작 행 (스키마) */
+const TABLE_META_FIRST_ROW = 2;
 
 /** 1-based 열 인덱스 (메타 라벨은 A열, 값은 B~마지막 열 병합). */
 const COL_IDX = {
@@ -283,6 +287,7 @@ function buildSheet(
     ws: ExcelJS.Worksheet,
     table: TableModel,
     t: TranslateFn,
+    listSheetName: string,
 ): void {
     // 열 너비는 상수로 유지 (ExcelJS character width 단위)
     ws.getColumn(COL_IDX.fieldPhysical).width = EXCEL_FIELD_PHYSICAL_COL_WIDTH;
@@ -292,6 +297,20 @@ function buildSheet(
     ws.getColumn(COL_IDX.pk).width = 4.5;
     ws.getColumn(COL_IDX.nullable).width = 10.5;
     ws.getColumn(COL_IDX.description).width = 42;
+
+    const backRow = ws.getRow(BACK_TO_LIST_ROW);
+    const backCell = backRow.getCell(COL_IDX.fieldPhysical);
+    backCell.value = {
+        text: t("excel.tableSheet.backToList"),
+        hyperlink: sheetInternalHyperlink(listSheetName),
+    };
+    styleListBodyCell(backCell, false, true);
+    ws.mergeCells(
+        BACK_TO_LIST_ROW,
+        COL_IDX.fieldPhysical,
+        BACK_TO_LIST_ROW,
+        COL_IDX.description,
+    );
 
     const metaLabels = [
         t("excel.tableSheet.schema"),
@@ -306,7 +325,7 @@ function buildSheet(
         table.description?.trim() ?? "",
     ];
     metaLabels.forEach((label, i) => {
-        const rowNum = i + 1;
+        const rowNum = TABLE_META_FIRST_ROW + i;
         const row = ws.getRow(rowNum);
         const labelCell = row.getCell(COL_IDX.fieldPhysical);
         labelCell.value = label;
@@ -399,7 +418,7 @@ export function buildTablesXlsxWorkbook(
         const ws = wb.addWorksheet(names[i]!, {
             views: [{ showGridLines: false }],
         });
-        buildSheet(ws, table, t);
+        buildSheet(ws, table, t, listSheetName);
     }
 
     return wb;

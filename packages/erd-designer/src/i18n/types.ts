@@ -167,6 +167,7 @@ export const I18N_KEYS = [
   "excel.tableSheet.physicalName",
   "excel.tableSheet.logicalName",
   "excel.tableSheet.description",
+  "excel.tableSheet.backToList",
   "excel.tableSheet.fieldPhysical",
   "excel.tableSheet.fieldLogical",
   "excel.tableSheet.type",

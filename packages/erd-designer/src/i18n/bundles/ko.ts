@@ -179,6 +179,7 @@ export const koBundle: Record<I18nKey, string> = {
   "excel.tableSheet.physicalName": "물리명",
   "excel.tableSheet.logicalName": "논리명",
   "excel.tableSheet.description": "설명",
+  "excel.tableSheet.backToList": "목록으로 이동",
   "excel.tableSheet.fieldPhysical": "필드명(물리)",
   "excel.tableSheet.fieldLogical": "필드명(논리)",
   "excel.tableSheet.type": "타입",

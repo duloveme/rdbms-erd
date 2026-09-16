@@ -179,6 +179,7 @@ export const enBundle: Record<I18nKey, string> = {
   "excel.tableSheet.physicalName": "Physical Name",
   "excel.tableSheet.logicalName": "Logical Name",
   "excel.tableSheet.description": "Description",
+  "excel.tableSheet.backToList": "Go to List",
   "excel.tableSheet.fieldPhysical": "Field Name(Physical)",
   "excel.tableSheet.fieldLogical": "Field Name(Logical)",
   "excel.tableSheet.type": "Type",
