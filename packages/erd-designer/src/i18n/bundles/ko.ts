@@ -159,6 +159,15 @@ export const koBundle: Record<I18nKey, string> = {
   "dialog.glossary.applySelected": "일괄적용",
   "dialog.glossary.selectAll": "전체 선택",
   "dialog.glossary.empty": "등록된 항목이 없습니다.",
+  "dialog.glossary.searchPlaceholder": "논리명 또는 물리명 검색",
+  "dialog.glossary.filterEmpty": "검색 결과가 없습니다.",
+  "dialog.glossary.errorDuplicateLogical":
+    "동일한 논리명이 이미 있습니다.",
+  "dialog.glossary.errorDuplicatePhysical":
+    "동일한 물리명이 이미 있습니다.",
+  "dialog.glossary.reorder": "순서 변경",
+  "dialog.glossary.maximize": "최대화",
+  "dialog.glossary.restore": "이전 크기로",
   "dialog.glossary.exportJson": "Glossary JSON 내보내기",
   "dialog.glossary.importJson": "Glossary JSON 불러오기",
   "dialog.glossary.importTitle": "Glossary 불러오기",

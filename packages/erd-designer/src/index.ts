@@ -50,10 +50,13 @@ export {
 export {
     applyGlossaryToTables,
     fillOppositeNamesFromGlossary,
+    findDuplicateGlossaryKeys,
     findGlossaryMatch,
+    glossaryEntryMatchesQuery,
     lookupLogicalName,
     lookupPhysicalName,
     mergeGlossaryEntries,
+    moveGlossaryEntry,
     parseGlossaryJson,
     removeGlossaryEntries,
     upsertGlossaryEntry,

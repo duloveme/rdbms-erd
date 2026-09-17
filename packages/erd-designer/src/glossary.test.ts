@@ -3,11 +3,14 @@ import { createColumn, type GlossaryEntry, type TableModel } from "@rdbms-erd/co
 import {
     applyGlossaryToTables,
     fillOppositeNamesFromGlossary,
+    findDuplicateGlossaryKeys,
     findGlossaryMatch,
     glossaryEntriesEqual,
+    glossaryEntryMatchesQuery,
     lookupLogicalName,
     lookupPhysicalName,
     mergeGlossaryEntries,
+    moveGlossaryEntry,
     parseGlossaryJson,
     removeGlossaryEntries,
     upsertGlossaryEntry,
@@ -98,6 +101,52 @@ describe("glossary helpers", () => {
         expect(removeGlossaryEntries(SAMPLE, ["g1"]).map((e) => e.id)).toEqual([
             "g2",
         ]);
+    });
+
+    it("matches query like LIKE %q% on either name side", () => {
+        expect(glossaryEntryMatchesQuery(SAMPLE[0]!, "")).toBe(true);
+        expect(glossaryEntryMatchesQuery(SAMPLE[0]!, "  ")).toBe(true);
+        expect(glossaryEntryMatchesQuery(SAMPLE[0]!, "창고")).toBe(true);
+        expect(glossaryEntryMatchesQuery(SAMPLE[0]!, "WAREHOUSE")).toBe(true);
+        expect(glossaryEntryMatchesQuery(SAMPLE[0]!, "없음")).toBe(false);
+    });
+
+    it("finds duplicate match-key ids case-insensitively", () => {
+        const rows: GlossaryEntry[] = [
+            { id: "a", logicalName: "창고ID", physicalName: "a" },
+            { id: "b", logicalName: "창고id", physicalName: "b" },
+            { id: "c", logicalName: "다른", physicalName: "c" },
+            { id: "d", logicalName: "", physicalName: "d" },
+            { id: "e", logicalName: "  ", physicalName: "e" },
+        ];
+        expect([...findDuplicateGlossaryKeys(rows, "logical")].sort()).toEqual([
+            "a",
+            "b",
+        ]);
+        expect(findDuplicateGlossaryKeys(rows, "physical").size).toBe(0);
+
+        const physDup: GlossaryEntry[] = [
+            { id: "a", logicalName: "L1", physicalName: "Col" },
+            { id: "b", logicalName: "L2", physicalName: "col" },
+        ];
+        expect([...findDuplicateGlossaryKeys(physDup, "physical")].sort()).toEqual([
+            "a",
+            "b",
+        ]);
+    });
+
+    it("moves an entry by index", () => {
+        expect(moveGlossaryEntry(SAMPLE, 0, 1).map((e) => e.id)).toEqual([
+            "g2",
+            "g1",
+        ]);
+        expect(moveGlossaryEntry(SAMPLE, 1, 0).map((e) => e.id)).toEqual([
+            "g2",
+            "g1",
+        ]);
+        expect(moveGlossaryEntry(SAMPLE, 0, 0)).toEqual(SAMPLE);
+        expect(moveGlossaryEntry(SAMPLE, -1, 0)).toEqual(SAMPLE);
+        expect(moveGlossaryEntry(SAMPLE, 0, 99)).toEqual(SAMPLE);
     });
 
     it("fills empty opposite names only when direction matches key", () => {

@@ -637,6 +637,18 @@
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.22);
 }
 
+.erd-input--invalid,
+.erd-input[aria-invalid="true"] {
+  border-color: #f87171;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
+}
+
+.erd-input--invalid:focus,
+.erd-input[aria-invalid="true"]:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.22);
+}
+
 .erd-btn {
   display: inline-flex;
   align-items: center;
@@ -936,6 +948,95 @@
   border-radius: 5px;
   padding: 0;
   flex-shrink: 0;
+}
+
+.erd-dialog--glossary {
+  position: relative;
+  overflow: hidden;
+}
+
+.erd-dialog--glossary-maximized {
+  border-radius: 8px;
+}
+
+.erd-glossary-list {
+  border: 1px solid var(--erd-border);
+  border-radius: 8px;
+  overflow: auto;
+  flex: 1;
+  min-height: 180px;
+}
+
+.erd-glossary-list-header {
+  display: grid;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--erd-border);
+  background: var(--erd-surface-muted);
+  font-size: 12px;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  align-items: center;
+}
+
+.erd-glossary-list-empty {
+  margin: 16px;
+  font-size: 13px;
+  color: var(--erd-text-muted);
+}
+
+.erd-glossary-row {
+  display: grid;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--erd-border);
+  align-items: center;
+}
+
+.erd-glossary-drag-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--erd-text-muted);
+  opacity: 0.8;
+  cursor: grab;
+  touch-action: none;
+}
+
+.erd-glossary-drag-grip:active {
+  cursor: grabbing;
+}
+
+.erd-dialog-resize-handle {
+  position: absolute;
+  z-index: 2;
+  background: transparent;
+}
+
+.erd-dialog-resize-handle--e {
+  top: 8px;
+  right: 0;
+  bottom: 8px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.erd-dialog-resize-handle--s {
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.erd-dialog-resize-handle--se {
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
 }
 
 @media (max-width: 540px) {

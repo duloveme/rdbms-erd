@@ -46,6 +46,68 @@ export function glossaryEntriesEqual(
     });
 }
 
+/** LIKE '%query%' (case-insensitive) against logical or physical name. */
+export function glossaryEntryMatchesQuery(
+    entry: GlossaryEntry,
+    query: string,
+): boolean {
+    const q = nameKey(query);
+    if (!q) return true;
+    return (
+        nameKey(entry.logicalName).includes(q) ||
+        nameKey(entry.physicalName).includes(q)
+    );
+}
+
+/**
+ * Entry ids whose match-key name collides with another non-empty name
+ * (trim + case-insensitive). Empty match-key values are ignored.
+ */
+export function findDuplicateGlossaryKeys(
+    glossary: readonly GlossaryEntry[],
+    matchKey: GlossaryMatchKey,
+): Set<string> {
+    const counts = new Map<string, string[]>();
+    for (const entry of glossary) {
+        const key =
+            matchKey === "logical"
+                ? nameKey(entry.logicalName)
+                : nameKey(entry.physicalName);
+        if (!key) continue;
+        const list = counts.get(key);
+        if (list) list.push(entry.id);
+        else counts.set(key, [entry.id]);
+    }
+    const dupIds = new Set<string>();
+    for (const ids of counts.values()) {
+        if (ids.length < 2) continue;
+        for (const id of ids) dupIds.add(id);
+    }
+    return dupIds;
+}
+
+/** Move an entry from `fromIndex` to `toIndex` (clamped). Returns a new array. */
+export function moveGlossaryEntry(
+    glossary: readonly GlossaryEntry[],
+    fromIndex: number,
+    toIndex: number,
+): GlossaryEntry[] {
+    if (
+        fromIndex < 0 ||
+        fromIndex >= glossary.length ||
+        toIndex < 0 ||
+        toIndex >= glossary.length ||
+        fromIndex === toIndex
+    ) {
+        return [...glossary];
+    }
+    const next = [...glossary];
+    const [moved] = next.splice(fromIndex, 1);
+    if (!moved) return [...glossary];
+    next.splice(toIndex, 0, moved);
+    return next;
+}
+
 /** Look up physical name by logical name (first match, case-insensitive). */
 export function lookupPhysicalName(
     glossary: readonly GlossaryEntry[],

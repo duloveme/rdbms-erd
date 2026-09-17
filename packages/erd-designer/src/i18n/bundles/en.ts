@@ -159,6 +159,15 @@ export const enBundle: Record<I18nKey, string> = {
   "dialog.glossary.applySelected": "Apply selected",
   "dialog.glossary.selectAll": "Select all",
   "dialog.glossary.empty": "No glossary entries.",
+  "dialog.glossary.searchPlaceholder": "Search logical or physical name",
+  "dialog.glossary.filterEmpty": "No entries match the search.",
+  "dialog.glossary.errorDuplicateLogical":
+    "Duplicate logical names are not allowed.",
+  "dialog.glossary.errorDuplicatePhysical":
+    "Duplicate physical names are not allowed.",
+  "dialog.glossary.reorder": "Reorder row",
+  "dialog.glossary.maximize": "Maximize",
+  "dialog.glossary.restore": "Restore",
   "dialog.glossary.exportJson": "Export glossary JSON",
   "dialog.glossary.importJson": "Import glossary JSON",
   "dialog.glossary.importTitle": "Import glossary",

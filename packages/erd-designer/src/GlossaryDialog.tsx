@@ -2,13 +2,31 @@
 
 import type { GlossaryEntry } from "@rdbms-erd/core";
 import { createId } from "@rdbms-erd/core";
-import { FileJson, FolderOpen, Plus, Trash2, X } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+    FileJson,
+    FolderOpen,
+    GripVertical,
+    Maximize2,
+    Minimize2,
+    Plus,
+    Trash2,
+    X,
+} from "lucide-react";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import { downloadJsonFile, sanitizeFileBase } from "./fileDownload";
 import type { GlossaryMatchKey } from "./glossary";
 import {
+    findDuplicateGlossaryKeys,
     glossaryEntriesEqual,
+    glossaryEntryMatchesQuery,
     mergeGlossaryEntries,
+    moveGlossaryEntry,
     parseGlossaryJson,
 } from "./glossary";
 import { useErdTranslator } from "./i18n/I18nContext";
@@ -25,6 +43,31 @@ export interface GlossaryDialogProps {
     locale?: string;
     translations?: Partial<Record<I18nKey, string>>;
     t?: (key: I18nKey, vars?: I18nVars) => string;
+}
+
+const DEFAULT_WIDTH = 720;
+const DEFAULT_HEIGHT = 640;
+const MIN_WIDTH = 480;
+const MIN_HEIGHT = 360;
+const BACKDROP_PAD = 24;
+
+type ResizeEdge = "e" | "s" | "se";
+
+function clampDialogSize(width: number, height: number) {
+    const maxW = Math.max(
+        MIN_WIDTH,
+        (typeof window !== "undefined" ? window.innerWidth : 1200) -
+            BACKDROP_PAD * 2,
+    );
+    const maxH = Math.max(
+        MIN_HEIGHT,
+        (typeof window !== "undefined" ? window.innerHeight : 800) -
+            BACKDROP_PAD * 2,
+    );
+    return {
+        width: Math.min(Math.max(width, MIN_WIDTH), maxW),
+        height: Math.min(Math.max(height, MIN_HEIGHT), maxH),
+    };
 }
 
 export function GlossaryDialog({
@@ -53,9 +96,27 @@ export function GlossaryDialog({
     const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
     const rowInputRefs = useRef(new Map<string, HTMLInputElement>());
     const wasOpenRef = useRef(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [duplicateIds, setDuplicateIds] = useState<Set<string>>(
+        () => new Set(),
+    );
+    const [draggingId, setDraggingId] = useState<string | null>(null);
+    const [size, setSize] = useState(() =>
+        clampDialogSize(DEFAULT_WIDTH, DEFAULT_HEIGHT),
+    );
+    const [maximized, setMaximized] = useState(false);
+    const sizeBeforeMaximizeRef = useRef(size);
+    const resizeSessionRef = useRef<{
+        edge: ResizeEdge;
+        startX: number;
+        startY: number;
+        startW: number;
+        startH: number;
+    } | null>(null);
 
     // 닫힘 -> 열림 전환에서만 초기화한다. `entries`가 갱신될 때마다 초기화하면
-    // 편집 중인 draft가 지워진다.
+    // 편집 중인 draft가 지워진다. 크기·최대화는 세션 동안 유지한다.
     useEffect(() => {
         if (open && !wasOpenRef.current) {
             setDraft(entries.map((e) => ({ ...e })));
@@ -63,6 +124,10 @@ export function GlossaryDialog({
             setCloseConfirmOpen(false);
             setImportPrompt(null);
             setPendingFocusId(null);
+            setSearchQuery("");
+            setSaveError(null);
+            setDuplicateIds(new Set());
+            setDraggingId(null);
         }
         wasOpenRef.current = open;
     }, [open, entries]);
@@ -76,21 +141,57 @@ export function GlossaryDialog({
         setPendingFocusId(null);
     }, [pendingFocusId, draft]);
 
-    const allSelected = useMemo(
-        () => draft.length > 0 && draft.every((e) => selectedIds.has(e.id)),
-        [draft, selectedIds],
+    const filteredDraft = useMemo(
+        () => draft.filter((e) => glossaryEntryMatchesQuery(e, searchQuery)),
+        [draft, searchQuery],
+    );
+
+    const allVisibleSelected = useMemo(
+        () =>
+            filteredDraft.length > 0 &&
+            filteredDraft.every((e) => selectedIds.has(e.id)),
+        [filteredDraft, selectedIds],
     );
 
     const dirty = !glossaryEntriesEqual(draft, entries);
 
-    if (!open) return null;
+    const clearSaveError = () => {
+        if (saveError) setSaveError(null);
+        if (duplicateIds.size > 0) setDuplicateIds(new Set());
+    };
 
-    const toggleAll = () => {
-        if (allSelected) {
-            setSelectedIds(new Set());
+    const validateBeforeCommit = (): boolean => {
+        const dups = findDuplicateGlossaryKeys(draft, glossaryMatchKey);
+        if (dups.size === 0) {
+            setSaveError(null);
+            setDuplicateIds(new Set());
+            return true;
+        }
+        setDuplicateIds(dups);
+        setSaveError(
+            t(
+                glossaryMatchKey === "logical"
+                    ? "dialog.glossary.errorDuplicateLogical"
+                    : "dialog.glossary.errorDuplicatePhysical",
+            ),
+        );
+        return false;
+    };
+
+    const toggleAllVisible = () => {
+        if (allVisibleSelected) {
+            setSelectedIds((prev) => {
+                const next = new Set(prev);
+                for (const e of filteredDraft) next.delete(e.id);
+                return next;
+            });
             return;
         }
-        setSelectedIds(new Set(draft.map((e) => e.id)));
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            for (const e of filteredDraft) next.add(e.id);
+            return next;
+        });
     };
 
     const toggleOne = (id: string) => {
@@ -106,12 +207,15 @@ export function GlossaryDialog({
         id: string,
         patch: Partial<Pick<GlossaryEntry, "logicalName" | "physicalName">>,
     ) => {
+        clearSaveError();
         setDraft((prev) =>
             prev.map((e) => (e.id === id ? { ...e, ...patch } : e)),
         );
     };
 
     const addRow = () => {
+        clearSaveError();
+        setSearchQuery("");
         const id = createId("gloss");
         setDraft((prev) => [...prev, { id, logicalName: "", physicalName: "" }]);
         setSelectedIds((prev) => new Set(prev).add(id));
@@ -120,12 +224,15 @@ export function GlossaryDialog({
 
     const deleteSelected = () => {
         if (selectedIds.size === 0) return;
+        clearSaveError();
         setDraft((prev) => prev.filter((e) => !selectedIds.has(e.id)));
         setSelectedIds(new Set());
     };
 
-    const commitDraft = () => {
+    const commitDraft = (): boolean => {
+        if (!validateBeforeCommit()) return false;
         onChange(draft);
+        return true;
     };
 
     const applySelected = () => {
@@ -134,7 +241,7 @@ export function GlossaryDialog({
             return e && e.logicalName.trim() && e.physicalName.trim();
         });
         if (ids.length === 0) return;
-        commitDraft();
+        if (!commitDraft()) return;
         onApplySelected(ids);
     };
 
@@ -145,6 +252,58 @@ export function GlossaryDialog({
         }
         onClose();
     };
+
+    const toggleMaximized = useCallback(() => {
+        setMaximized((prev) => {
+            if (!prev) {
+                sizeBeforeMaximizeRef.current = size;
+                return true;
+            }
+            setSize(clampDialogSize(
+                sizeBeforeMaximizeRef.current.width,
+                sizeBeforeMaximizeRef.current.height,
+            ));
+            return false;
+        });
+    }, [size]);
+
+    const onResizePointerDown = useCallback(
+        (edge: ResizeEdge) => (e: React.PointerEvent) => {
+            if (maximized) return;
+            e.preventDefault();
+            e.stopPropagation();
+            resizeSessionRef.current = {
+                edge,
+                startX: e.clientX,
+                startY: e.clientY,
+                startW: size.width,
+                startH: size.height,
+            };
+            const handleMove = (ev: PointerEvent) => {
+                const session = resizeSessionRef.current;
+                if (!session) return;
+                const dx = ev.clientX - session.startX;
+                const dy = ev.clientY - session.startY;
+                let nextW = session.startW;
+                let nextH = session.startH;
+                if (session.edge === "e" || session.edge === "se") {
+                    nextW = session.startW + dx;
+                }
+                if (session.edge === "s" || session.edge === "se") {
+                    nextH = session.startH + dy;
+                }
+                setSize(clampDialogSize(nextW, nextH));
+            };
+            const handleUp = () => {
+                resizeSessionRef.current = null;
+                window.removeEventListener("pointermove", handleMove);
+                window.removeEventListener("pointerup", handleUp);
+            };
+            window.addEventListener("pointermove", handleMove);
+            window.addEventListener("pointerup", handleUp);
+        },
+        [maximized, size.height, size.width],
+    );
 
     const exportJson = () => {
         downloadJsonFile(
@@ -170,6 +329,7 @@ export function GlossaryDialog({
             return;
         }
         if (draft.length === 0) {
+            clearSaveError();
             setDraft(imported);
             return;
         }
@@ -178,6 +338,7 @@ export function GlossaryDialog({
 
     const applyImport = (mode: "replace" | "merge") => {
         if (importPrompt?.kind !== "choose") return;
+        clearSaveError();
         setDraft((prev) =>
             mode === "replace"
                 ? importPrompt.entries
@@ -196,6 +357,17 @@ export function GlossaryDialog({
         else rowInputRefs.current.delete(id);
     };
 
+    const moveRowTo = (fromId: string, toId: string) => {
+        if (fromId === toId) return;
+        clearSaveError();
+        setDraft((prev) => {
+            const fromIndex = prev.findIndex((e) => e.id === fromId);
+            const toIndex = prev.findIndex((e) => e.id === toId);
+            if (fromIndex < 0 || toIndex < 0) return prev;
+            return moveGlossaryEntry(prev, fromIndex, toIndex);
+        });
+    };
+
     const physicalFirst = glossaryMatchKey === "physical";
     const firstHeaderKey = physicalFirst
         ? "dialog.glossary.physicalName"
@@ -203,34 +375,129 @@ export function GlossaryDialog({
     const secondHeaderKey = physicalFirst
         ? "dialog.glossary.logicalName"
         : "dialog.glossary.physicalName";
+    const rowGridColumns = "28px 20px 1fr 1fr";
+
+    if (!open) return null;
+
+    const dialogStyle: React.CSSProperties = maximized
+        ? {
+              width: "100%",
+              height: "100%",
+              maxHeight: "none",
+          }
+        : {
+              width: size.width,
+              height: size.height,
+              maxHeight: "none",
+              maxWidth: "100%",
+          };
+
+    const renderNameInputs = (entry: GlossaryEntry) => {
+        const isDup = duplicateIds.has(entry.id);
+        const logicalInvalid = isDup && glossaryMatchKey === "logical";
+        const physicalInvalid = isDup && glossaryMatchKey === "physical";
+        const logicalInput = (
+            <input
+                className={`erd-input${logicalInvalid ? " erd-input--invalid" : ""}`}
+                ref={
+                    physicalFirst
+                        ? undefined
+                        : (el) => registerRowInput(entry.id, el)
+                }
+                value={entry.logicalName}
+                onChange={(e) =>
+                    updateEntry(entry.id, { logicalName: e.target.value })
+                }
+                placeholder={t("dialog.glossary.logicalName")}
+                aria-invalid={logicalInvalid || undefined}
+            />
+        );
+        const physicalInput = (
+            <input
+                className={`erd-input${physicalInvalid ? " erd-input--invalid" : ""}`}
+                ref={
+                    physicalFirst
+                        ? (el) => registerRowInput(entry.id, el)
+                        : undefined
+                }
+                value={entry.physicalName}
+                onChange={(e) =>
+                    updateEntry(entry.id, { physicalName: e.target.value })
+                }
+                placeholder={t("dialog.glossary.physicalName")}
+                aria-invalid={physicalInvalid || undefined}
+            />
+        );
+        return physicalFirst ? (
+            <>
+                {physicalInput}
+                {logicalInput}
+            </>
+        ) : (
+            <>
+                {logicalInput}
+                {physicalInput}
+            </>
+        );
+    };
 
     return (
         <div className="erd-dialog-backdrop" role="presentation">
             <div
-                className="erd-dialog"
+                className={`erd-dialog erd-dialog--glossary${maximized ? " erd-dialog--glossary-maximized" : ""}`}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="erd-glossary-dialog-title"
-                style={{
-                    width: "min(720px, 100%)",
-                    maxHeight: "min(80vh, 640px)",
-                    display: "flex",
-                    flexDirection: "column",
-                }}
+                style={dialogStyle}
                 onMouseDown={(e) => e.stopPropagation()}
             >
-                <div className="erd-dialog-header">
+                <div
+                    className="erd-dialog-header"
+                    onDoubleClick={(e) => {
+                        if (
+                            (e.target as HTMLElement).closest(
+                                "button, input, a",
+                            )
+                        ) {
+                            return;
+                        }
+                        toggleMaximized();
+                    }}
+                >
                     <span id="erd-glossary-dialog-title">
                         {t("dialog.glossary.title")}
                     </span>
-                    <button
-                        type="button"
-                        className="erd-dialog-icon-btn"
-                        aria-label={t("dialog.close")}
-                        onClick={requestClose}
-                    >
-                        <X size={16} />
-                    </button>
+                    <div className="erd-dialog-header-actions">
+                        <button
+                            type="button"
+                            className="erd-dialog-icon-btn"
+                            aria-label={t(
+                                maximized
+                                    ? "dialog.glossary.restore"
+                                    : "dialog.glossary.maximize",
+                            )}
+                            title={t(
+                                maximized
+                                    ? "dialog.glossary.restore"
+                                    : "dialog.glossary.maximize",
+                            )}
+                            onClick={toggleMaximized}
+                        >
+                            {maximized ? (
+                                <Minimize2 size={16} />
+                            ) : (
+                                <Maximize2 size={16} />
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-dialog-icon-btn"
+                            aria-label={t("dialog.close")}
+                            onClick={requestClose}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
                 </div>
                 <div
                     className="erd-dialog-body"
@@ -276,63 +543,63 @@ export function GlossaryDialog({
                             {t("dialog.glossary.applySelected")}
                         </button>
                     </div>
+                    <input
+                        className="erd-input"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder={t("dialog.glossary.searchPlaceholder")}
+                        aria-label={t("dialog.glossary.searchPlaceholder")}
+                    />
                     <div
-                        style={{
-                            border: "1px solid var(--erd-border)",
-                            borderRadius: 8,
-                            overflow: "auto",
-                            flex: 1,
-                            minHeight: 180,
+                        className="erd-glossary-list"
+                        onDragOver={(e) => {
+                            if (draggingId == null) return;
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
                         }}
                     >
                         <div
-                            style={{
-                                display: "grid",
-                                gridTemplateColumns: "28px 1fr 1fr",
-                                gap: 8,
-                                padding: "8px 10px",
-                                borderBottom: "1px solid var(--erd-border)",
-                                background: "var(--erd-surface-muted)",
-                                fontSize: 12,
-                                fontWeight: 600,
-                                position: "sticky",
-                                top: 0,
-                                zIndex: 1,
-                            }}
+                            className="erd-glossary-list-header"
+                            style={{ gridTemplateColumns: rowGridColumns }}
                         >
                             <label title={t("dialog.glossary.selectAll")}>
                                 <input
                                     type="checkbox"
-                                    checked={allSelected}
-                                    onChange={toggleAll}
+                                    checked={allVisibleSelected}
+                                    onChange={toggleAllVisible}
                                     aria-label={t("dialog.glossary.selectAll")}
                                 />
                             </label>
+                            <span aria-hidden="true" />
                             <span>{t(firstHeaderKey)}</span>
                             <span>{t(secondHeaderKey)}</span>
                         </div>
                         {draft.length === 0 ? (
-                            <p
-                                style={{
-                                    margin: 16,
-                                    fontSize: 13,
-                                    color: "var(--erd-text-muted)",
-                                }}
-                            >
+                            <p className="erd-glossary-list-empty">
                                 {t("dialog.glossary.empty")}
                             </p>
+                        ) : filteredDraft.length === 0 ? (
+                            <p className="erd-glossary-list-empty">
+                                {t("dialog.glossary.filterEmpty")}
+                            </p>
                         ) : (
-                            draft.map((entry) => (
+                            filteredDraft.map((entry) => (
                                 <div
                                     key={entry.id}
+                                    className="erd-glossary-row"
                                     style={{
-                                        display: "grid",
-                                        gridTemplateColumns: "28px 1fr 1fr",
-                                        gap: 8,
-                                        padding: "6px 10px",
-                                        borderBottom:
-                                            "1px solid var(--erd-border)",
-                                        alignItems: "center",
+                                        gridTemplateColumns: rowGridColumns,
+                                    }}
+                                    onDragOver={(e) => {
+                                        if (draggingId == null) return;
+                                        e.preventDefault();
+                                        e.dataTransfer.dropEffect = "move";
+                                    }}
+                                    onDrop={(e) => {
+                                        if (draggingId == null) return;
+                                        e.preventDefault();
+                                        moveRowTo(draggingId, entry.id);
+                                        setDraggingId(null);
                                     }}
                                 >
                                     <input
@@ -340,126 +607,124 @@ export function GlossaryDialog({
                                         checked={selectedIds.has(entry.id)}
                                         onChange={() => toggleOne(entry.id)}
                                     />
-                                    {physicalFirst ? (
-                                        <>
-                                            <input
-                                                className="erd-input"
-                                                ref={(el) =>
-                                                    registerRowInput(
-                                                        entry.id,
-                                                        el,
-                                                    )
-                                                }
-                                                value={entry.physicalName}
-                                                onChange={(e) =>
-                                                    updateEntry(entry.id, {
-                                                        physicalName:
-                                                            e.target.value,
-                                                    })
-                                                }
-                                                placeholder={t(
-                                                    "dialog.glossary.physicalName",
-                                                )}
-                                            />
-                                            <input
-                                                className="erd-input"
-                                                value={entry.logicalName}
-                                                onChange={(e) =>
-                                                    updateEntry(entry.id, {
-                                                        logicalName:
-                                                            e.target.value,
-                                                    })
-                                                }
-                                                placeholder={t(
-                                                    "dialog.glossary.logicalName",
-                                                )}
-                                            />
-                                        </>
-                                    ) : (
-                                        <>
-                                            <input
-                                                className="erd-input"
-                                                ref={(el) =>
-                                                    registerRowInput(
-                                                        entry.id,
-                                                        el,
-                                                    )
-                                                }
-                                                value={entry.logicalName}
-                                                onChange={(e) =>
-                                                    updateEntry(entry.id, {
-                                                        logicalName:
-                                                            e.target.value,
-                                                    })
-                                                }
-                                                placeholder={t(
-                                                    "dialog.glossary.logicalName",
-                                                )}
-                                            />
-                                            <input
-                                                className="erd-input"
-                                                value={entry.physicalName}
-                                                onChange={(e) =>
-                                                    updateEntry(entry.id, {
-                                                        physicalName:
-                                                            e.target.value,
-                                                    })
-                                                }
-                                                placeholder={t(
-                                                    "dialog.glossary.physicalName",
-                                                )}
-                                            />
-                                        </>
-                                    )}
+                                    <span
+                                        className="erd-glossary-drag-grip"
+                                        draggable
+                                        title={t("dialog.glossary.reorder")}
+                                        aria-label={t(
+                                            "dialog.glossary.reorder",
+                                        )}
+                                        onDragStart={(e) => {
+                                            e.dataTransfer.effectAllowed =
+                                                "move";
+                                            e.dataTransfer.setData(
+                                                "text/plain",
+                                                entry.id,
+                                            );
+                                            setDraggingId(entry.id);
+                                        }}
+                                        onDragEnd={() => setDraggingId(null)}
+                                    >
+                                        <GripVertical
+                                            size={12}
+                                            strokeWidth={2}
+                                        />
+                                    </span>
+                                    {renderNameInputs(entry)}
                                 </div>
                             ))
                         )}
                     </div>
                 </div>
-                <div className="erd-dialog-footer">
-                    <button
-                        type="button"
-                        className="erd-dialog-icon-btn"
-                        title={t("dialog.glossary.exportJson")}
-                        aria-label={t("dialog.glossary.exportJson")}
-                        onClick={exportJson}
-                        disabled={draft.length === 0}
+                <div
+                    className="erd-dialog-footer"
+                    style={{
+                        flexDirection: "column",
+                        alignItems: "stretch",
+                        gap: 8,
+                    }}
+                >
+                    {saveError ? (
+                        <div
+                            role="alert"
+                            style={{
+                                color: "#b91c1c",
+                                fontSize: 13,
+                            }}
+                        >
+                            {saveError}
+                        </div>
+                    ) : null}
+                    <div
+                        style={{
+                            display: "flex",
+                            gap: 8,
+                            justifyContent: "flex-end",
+                            alignItems: "center",
+                        }}
                     >
-                        <FileJson size={16} />
-                    </button>
-                    <button
-                        type="button"
-                        className="erd-dialog-icon-btn"
-                        style={{ marginRight: "auto" }}
-                        title={t("dialog.glossary.importJson")}
-                        aria-label={t("dialog.glossary.importJson")}
-                        onClick={() => importInputRef.current?.click()}
-                    >
-                        <FolderOpen size={16} />
-                    </button>
-                    <input
-                        ref={importInputRef}
-                        type="file"
-                        accept=".json,application/json"
-                        onChange={(e) => void handleImportFile(e)}
-                        style={{ display: "none" }}
-                    />
-                    <button
-                        type="button"
-                        className="erd-btn erd-btn--primary"
-                        disabled={!dirty}
-                        onClick={commitDraft}
-                    >
-                        {t("dialog.save")}
-                    </button>
-                    <button
-                        type="button"
-                        className="erd-btn erd-btn--ghost"
-                        onClick={requestClose}
-                    >
-                        {t("dialog.close")}
-                    </button>
+                        <button
+                            type="button"
+                            className="erd-dialog-icon-btn"
+                            title={t("dialog.glossary.exportJson")}
+                            aria-label={t("dialog.glossary.exportJson")}
+                            onClick={exportJson}
+                            disabled={draft.length === 0}
+                        >
+                            <FileJson size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-dialog-icon-btn"
+                            style={{ marginRight: "auto" }}
+                            title={t("dialog.glossary.importJson")}
+                            aria-label={t("dialog.glossary.importJson")}
+                            onClick={() => importInputRef.current?.click()}
+                        >
+                            <FolderOpen size={16} />
+                        </button>
+                        <input
+                            ref={importInputRef}
+                            type="file"
+                            accept=".json,application/json"
+                            onChange={(e) => void handleImportFile(e)}
+                            style={{ display: "none" }}
+                        />
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--primary"
+                            disabled={!dirty}
+                            onClick={() => {
+                                void commitDraft();
+                            }}
+                        >
+                            {t("dialog.save")}
+                        </button>
+                        <button
+                            type="button"
+                            className="erd-btn erd-btn--ghost"
+                            onClick={requestClose}
+                        >
+                            {t("dialog.close")}
+                        </button>
+                    </div>
                 </div>
+                {!maximized ? (
+                    <>
+                        <div
+                            className="erd-dialog-resize-handle erd-dialog-resize-handle--e"
+                            onPointerDown={onResizePointerDown("e")}
+                        />
+                        <div
+                            className="erd-dialog-resize-handle erd-dialog-resize-handle--s"
+                            onPointerDown={onResizePointerDown("s")}
+                        />
+                        <div
+                            className="erd-dialog-resize-handle erd-dialog-resize-handle--se"
+                            onPointerDown={onResizePointerDown("se")}
+                        />
+                    </>
+                ) : null}
             </div>
             {importPrompt ? (
                 <div
@@ -575,7 +840,7 @@ export function GlossaryDialog({
                                 className="erd-btn erd-btn--primary"
                                 autoFocus
                                 onClick={() => {
-                                    commitDraft();
+                                    if (!commitDraft()) return;
                                     setCloseConfirmOpen(false);
                                     onClose();
                                 }}
