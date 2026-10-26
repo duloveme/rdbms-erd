@@ -112,6 +112,8 @@ const metas = resolveDialectMetas({
 });
 ```
 
+`ddlStyle.primaryKeyNonclustered` (optional): when `true`, table DDL emits `CONSTRAINT PK_<table> PRIMARY KEY NONCLUSTERED (...)`. Built-in MS SQL Server sets this to `true`; omit or set `false` for anonymous `PRIMARY KEY (...)`. Replacing a dialect meta via `hostMetas` requires including this field again to keep the named constraint.
+
 ### 2) Optional per-dialect DDL function hook
 
 If a dialect DDL is complex, provide a function in `hostDdlGenerators`.

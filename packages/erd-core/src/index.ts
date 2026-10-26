@@ -188,6 +188,8 @@ export interface DdlStyle {
     quote: DdlStyleQuote;
     boolLiteral?: DdlStyleBooleanLiteral;
     nowKeyword?: string;
+    /** When true, emit `CONSTRAINT PK_table PRIMARY KEY NONCLUSTERED (cols)`. */
+    primaryKeyNonclustered?: boolean;
 }
 
 export interface LogicalTypeMeta {
@@ -237,6 +239,7 @@ export interface DdlGeneratorRules {
         dialect: RdbmsDialect,
         col: ColumnModel,
     ) => string | null;
+    primaryKeyNonclustered?: boolean;
 }
 
 export interface DbMetaAdapter {
@@ -368,6 +371,7 @@ const DIALECT_DDL_STYLE: Record<BuiltinRdbmsDialect, DdlStyle> = {
         quote: "bracket",
         boolLiteral: "oneZero",
         nowKeyword: "GETDATE()",
+        primaryKeyNonclustered: true,
     },
     oracle: {
         quote: "double",
@@ -556,7 +560,11 @@ function buildDbMetaAdapterFromMetas(metas: DialectMetaJson[]): DbMetaAdapter {
                         return raw;
                     return quoteSqlString(raw);
                 };
-            return { quoteIdentifier, toDefaultExpression };
+            return {
+                quoteIdentifier,
+                toDefaultExpression,
+                primaryKeyNonclustered: style.primaryKeyNonclustered,
+            };
         },
     };
 }
@@ -1067,6 +1075,23 @@ function toDefaultExpression(
     return handler(dialect, col);
 }
 
+function usesNamedNonclusteredPrimaryKey(
+    dialect: RdbmsDialect,
+    options?: CoreDbMetaOptions,
+): boolean {
+    const hostMeta = options?.hostMetas?.find((meta) => meta.id === dialect);
+    if (hostMeta) {
+        return hostMeta.ddlStyle?.primaryKeyNonclustered === true;
+    }
+    const fromRules = resolveDbMetaAdapter(options).getDdlRules(dialect)
+        .primaryKeyNonclustered;
+    if (typeof fromRules === "boolean") return fromRules;
+    const merged = resolveDialectMetas(options).find(
+        (meta) => meta.id === dialect,
+    );
+    return merged?.ddlStyle?.primaryKeyNonclustered === true;
+}
+
 function joinColumnDefs(
     table: TableModel,
     dialect: RdbmsDialect,
@@ -1082,7 +1107,18 @@ function joinColumnDefs(
         .filter((col) => col.isPrimaryKey)
         .map((col) => quoteIdentifier(dialect, col.physicalName, options));
     if (pkColumns.length > 0) {
-        defs.push(`  PRIMARY KEY (${pkColumns.join(", ")})`);
+        if (usesNamedNonclusteredPrimaryKey(dialect, options)) {
+            const pkName = quoteIdentifier(
+                dialect,
+                `PK_${table.physicalName}`,
+                options,
+            );
+            defs.push(
+                `  CONSTRAINT ${pkName} PRIMARY KEY NONCLUSTERED (${pkColumns.join(", ")})`,
+            );
+        } else {
+            defs.push(`  PRIMARY KEY (${pkColumns.join(", ")})`);
+        }
     }
     return defs;
 }
